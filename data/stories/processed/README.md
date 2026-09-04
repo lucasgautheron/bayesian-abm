@@ -43,9 +43,10 @@ never null.
 
 The analysis loader reads the complete population as one joint observation.
 The shared story-summary pipeline ranks stories by total mentions, retains
-the top 1,000, and pads smaller populations with an explicit validity mask.
-A shared temporal encoder and DeepSet learn fixed-size inference conditions
-from this panel. Simulations use the same ranking and truncation computation.
+the top 1,000, and computes a small set of scalar inference conditions.
+Simulations use the same ranking, truncation, and scalar computations.
+The statistics describe story count, total and daily reporting, reporting
+heterogeneity and lifetime, and concentration of mentions across stories.
 
 | Column | Type | Meaning |
 | --- | --- | --- |
