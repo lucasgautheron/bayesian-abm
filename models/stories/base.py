@@ -74,8 +74,23 @@ def ranked_story_mentions(
     return mentions[order]
 
 
-def _selected_story_count(mentions: NDArray[np.float32]) -> float:
-    return float(len(mentions))
+def _mean_story_autocorrelation(mentions: NDArray[np.float32]) -> float:
+    if not len(mentions) or mentions.shape[1] < 2:
+        return 0.0
+    series = mentions.astype(np.float64, copy=False)
+    first = series[:, :-1]
+    second = series[:, 1:]
+    first = first - first.mean(axis=1, keepdims=True)
+    second = second - second.mean(axis=1, keepdims=True)
+    numerator = np.sum(first * second, axis=1)
+    denominator = np.linalg.norm(first, axis=1) * np.linalg.norm(second, axis=1)
+    correlations = np.divide(
+        numerator,
+        denominator,
+        out=np.zeros_like(numerator),
+        where=~np.isclose(denominator, 0.0),
+    )
+    return float(correlations.mean())
 
 
 def _total_mentions(mentions: NDArray[np.float32]) -> float:
@@ -124,9 +139,9 @@ def _mention_concentration(mentions: NDArray[np.float32]) -> float:
 
 
 STORY_SUMMARY_STATISTICS: dict[str, StorySummaryStatistic] = {
-    "selected_story_count": _selected_story_count,
     "total_mentions": _total_mentions,
     "daily_total_stdev": _daily_total_stdev,
+    "mean_story_autocorrelation": _mean_story_autocorrelation,
     "mean_reporting_story_count": _mean_reporting_story_count,
     "story_mentions_coefficient_of_variation": (
         _story_mentions_coefficient_of_variation

@@ -20,8 +20,8 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT = PROJECT_ROOT / "data" / "contacts" / "contacts.parquet"
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent
-INTERVAL_SECONDS = 20
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output" / "contacts"
+INTERVAL_SECONDS = 60
 MINUTE_SECONDS = 60
 FIVE_MINUTE_BIN_SECONDS = 5 * MINUTE_SECONDS
 CLUSTERING_BIN_SECONDS = 30 * MINUTE_SECONDS
@@ -283,7 +283,9 @@ def plot_temporal_networks(
             ScalarMappable(norm=color_norm, cmap=color_map),
             cax=colorbar_ax,
         )
-        colorbar.set_label("Active 20-second contact intervals per person")
+        colorbar.set_label(
+            f"Active {INTERVAL_SECONDS}-second contact intervals per person"
+        )
         ax.set_title(
             f"Contact network: {elapsed_label(start)}–{elapsed_label(end)}\n"
             f"{len(active_nodes):,} active people, "

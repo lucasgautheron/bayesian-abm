@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from base.summaries import Summaries
 
 
-INTERVAL_SECONDS = 20
+INTERVAL_SECONDS = 60
 CONTACT_KEYS = ("t", "i", "j")
 
 ContactData = dict[str, NDArray[np.int32]]
@@ -48,6 +48,23 @@ def validate_contacts(contacts: Mapping[str, ArrayLike]) -> ContactData:
 
 def _names(variables: Sequence[Any]) -> tuple[str, ...]:
     return tuple(variable.name for variable in variables)
+
+
+def _stacked_draw_count(
+    parameters: Mapping[str, NDArray[Any]],
+    names: Sequence[str],
+) -> int:
+    counts: list[int] = []
+    for name in names:
+        if name not in parameters:
+            raise ValueError(f"missing parameter {name!r}")
+        values = np.asarray(parameters[name])
+        if values.ndim == 0:
+            raise ValueError(f"parameter {name!r} must include a draw axis")
+        counts.append(int(values.shape[0]))
+    if len(set(counts)) != 1:
+        raise ValueError("parameter draws must share a leading axis")
+    return counts[0]
 
 
 def _bound_value(value: Any) -> float | None:
@@ -165,6 +182,107 @@ class Model(ABC):
         )
         inferred = {name: parameters[name] for name in inference_names}
         return inferred, simulation
+
+    def sample_prior(
+        self,
+        draws: int,
+        *,
+        seed: Seed = None,
+        **context: Any,
+    ) -> ParameterData:
+        """Draw inference variables from the prior without simulating data."""
+
+        if draws < 1:
+            raise ValueError("prior draws must be positive")
+        prior, inference_names, _ = self._prior(context)
+        return self._draw_prior(
+            prior,
+            inference_names,
+            draws,
+            np.random.default_rng(seed),
+        )
+
+    def complete_parameter_draws(
+        self,
+        inferred: Mapping[str, NDArray[Any]],
+        rng: np.random.Generator,
+        **context: Any,
+    ) -> ParameterData:
+        """Fill simulator-only variables for a stack of inferred draws.
+
+        Extra free or deterministic variables are drawn with ``pymc.do`` so
+        hierarchical children use the inferred hyperparameters.
+        """
+
+        prior, inference_names, simulator_names = self._prior(context)
+        n_draws = _stacked_draw_count(inferred, inference_names)
+        completed = {
+            name: np.asarray(inferred[name]) for name in inference_names
+        }
+        extra = [
+            name for name in simulator_names if name not in inference_names
+        ]
+        if not extra:
+            return completed
+
+        extras = {name: [] for name in extra}
+        free_variables = {
+            variable.name: variable for variable in prior.free_RVs
+        }
+        for index in range(n_draws):
+            replacements = {
+                free_variables[name]: np.asarray(completed[name])[index]
+                for name in inference_names
+            }
+            draws = self._draw_prior(
+                pm.do(prior, replacements),
+                extra,
+                1,
+                rng,
+            )
+            for name in extra:
+                extras[name].append(np.asarray(draws[name])[0])
+        completed.update(
+            {name: np.stack(values) for name, values in extras.items()}
+        )
+        return completed
+
+    def simulate_summaries(
+        self,
+        parameters: Mapping[str, NDArray[Any]],
+        summaries: Summaries,
+        *,
+        seed: Seed = None,
+        progress: Callable[[int], object] | None = None,
+        **context: Any,
+    ) -> dict[str, NDArray[Any]]:
+        """Simulate scalar summaries from stacked parameter draws."""
+
+        rng = np.random.default_rng(seed)
+        completed = self.complete_parameter_draws(parameters, rng, **context)
+        n_draws = _stacked_draw_count(completed, tuple(completed))
+        summary_draws = {name: [] for name in summaries}
+        for index in range(n_draws):
+            draw = {
+                name: np.asarray(values)[index]
+                for name, values in completed.items()
+            }
+            simulation = self.validate_simulation(
+                self.simulate(draw, rng, **context),
+                **context,
+            )
+            for name, value in self.summarize(
+                simulation,
+                summaries,
+                **context,
+            ).items():
+                summary_draws[name].append(value)
+            if progress is not None:
+                progress(1)
+        return {
+            name: np.stack(values)
+            for name, values in summary_draws.items()
+        }
 
     def _batched_simulator(
         self,

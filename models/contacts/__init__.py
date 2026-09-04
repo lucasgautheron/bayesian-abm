@@ -3,13 +3,15 @@
 from base.model import Model
 
 from .base import CONTACT_DATASET, ContactModel
-from .friend import FriendModel
+from .group_occupancy import GroupOccupancyModel
+from .latent_network import LatentNetworkModel
 from .reputation import ReputationConversationModel
 
 
 MODEL_CLASSES: tuple[type[Model], ...] = (
     ReputationConversationModel,
-    FriendModel,
+    LatentNetworkModel,
+    GroupOccupancyModel,
 )
 MODEL_REGISTRY: dict[str, type[Model]] = {
     model.name: model for model in MODEL_CLASSES
@@ -24,7 +26,8 @@ if any(model.dataset != CONTACT_DATASET for model in MODEL_CLASSES):
 __all__ = [
     "CONTACT_DATASET",
     "ContactModel",
-    "FriendModel",
+    "GroupOccupancyModel",
+    "LatentNetworkModel",
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
     "ReputationConversationModel",

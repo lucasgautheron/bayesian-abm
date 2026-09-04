@@ -3,12 +3,19 @@
 from base.model import Model
 
 from .contacts import (
-    FriendModel,
+    GroupOccupancyModel,
+    LatentNetworkModel,
     ReputationConversationModel,
 )
 from .contacts import MODEL_CLASSES as CONTACT_MODEL_CLASSES
 from .contacts import MODEL_REGISTRY as CONTACT_MODEL_REGISTRY
-from .stories import StoryCompetitionModel
+from .stories import (
+    GeneralizedSIRModel,
+    LatentRateModel,
+    LimitedAttentionModel,
+    LinearInfluenceModel,
+    StoryCompetitionModel,
+)
 from .stories import MODEL_CLASSES as STORY_MODEL_CLASSES
 from .stories import MODEL_REGISTRY as STORY_MODEL_REGISTRY
 
@@ -56,7 +63,12 @@ def resolve_model(name: str) -> Model:
 __all__ = [
     "CONTACT_MODEL_CLASSES",
     "CONTACT_MODEL_REGISTRY",
-    "FriendModel",
+    "GeneralizedSIRModel",
+    "GroupOccupancyModel",
+    "LatentNetworkModel",
+    "LatentRateModel",
+    "LinearInfluenceModel",
+    "LimitedAttentionModel",
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
     "MODEL_REGISTRIES",

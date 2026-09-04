@@ -13,9 +13,19 @@ from .base import (
     validate_story_data,
 )
 from .competition import StoryCompetitionModel
+from .generalized_sir import GeneralizedSIRModel
+from .latent_rate import LatentRateModel
+from .linear_influence import LinearInfluenceModel
+from .limited_attention import LimitedAttentionModel
 
 
-MODEL_CLASSES: tuple[type[Model], ...] = (StoryCompetitionModel,)
+MODEL_CLASSES: tuple[type[Model], ...] = (
+    StoryCompetitionModel,
+    LimitedAttentionModel,
+    LinearInfluenceModel,
+    GeneralizedSIRModel,
+    LatentRateModel,
+)
 MODEL_REGISTRY: dict[str, type[Model]] = {
     model.name: model for model in MODEL_CLASSES
 }
@@ -27,6 +37,10 @@ if any(model.dataset != STORY_DATASET for model in MODEL_CLASSES):
 
 __all__ = [
     "DEFAULT_STORY_SUMMARY_COUNT",
+    "GeneralizedSIRModel",
+    "LatentRateModel",
+    "LinearInfluenceModel",
+    "LimitedAttentionModel",
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
     "STORY_DATASET",

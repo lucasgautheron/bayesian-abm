@@ -15,6 +15,7 @@ from typing import Any
 import bayesflow as bf
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm.auto import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -24,6 +25,11 @@ from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
 from models import resolve_model
+from scripts.simulate import summary_frame
+from visualization.diagnostics import (
+    plot_predictive_summary_pairplot,
+    plot_prior_posterior_pairplot,
+)
 
 
 def make_workflow(
@@ -51,32 +57,45 @@ def make_workflow(
     )
 
 
-def prepare_posterior_plot_data(
+def posterior_parameter_draws(
     posterior: Mapping[str, np.ndarray],
     variable_keys: Sequence[str],
-) -> tuple[dict[str, np.ndarray], list[str]]:
-    """Restore scalar axes and reduce vector parameters to their mean."""
+    *,
+    dataset_id: int = 0,
+    draws: int | None = None,
+    rng: np.random.Generator | None = None,
+) -> dict[str, np.ndarray]:
+    """Return stacked inference-variable draws for one observed dataset."""
 
-    prepared: dict[str, np.ndarray] = {}
-    variable_names: list[str] = []
-    for key in variable_keys:
-        if key not in posterior:
-            raise ValueError(f"posterior is missing inference variable {key!r}")
-        values = np.asarray(posterior[key])
+    selected: dict[str, np.ndarray] = {}
+    counts: list[int] = []
+    for name in variable_keys:
+        if name not in posterior:
+            raise ValueError(f"posterior is missing inference variable {name!r}")
+        values = np.asarray(posterior[name])
         if values.ndim == 2:
-            values = values[..., None]
-            variable_names.append(key)
+            values = values[dataset_id]
         elif values.ndim == 3:
-            is_vector = values.shape[-1] > 1
-            values = values.mean(axis=-1, keepdims=True)
-            variable_names.append(f"{key}_mean" if is_vector else key)
+            values = values[dataset_id]
         else:
             raise ValueError(
-                f"posterior variable {key!r} must have dataset, draw, and "
-                "optional variable axes"
+                f"posterior variable {name!r} must have dataset and draw axes"
             )
-        prepared[key] = values
-    return prepared, variable_names
+        selected[name] = values
+        counts.append(int(values.shape[0]))
+    if len(set(counts)) != 1:
+        raise ValueError("posterior draws must share a draw axis")
+    n_available = counts[0]
+    if draws is None or draws == n_available:
+        return selected
+    if draws < 2:
+        raise ValueError("predictive runs must be at least 2")
+    if draws > n_available:
+        raise ValueError("predictive runs cannot exceed the posterior draws")
+    generator = np.random.default_rng() if rng is None else rng
+    index = generator.choice(n_available, size=draws, replace=False)
+    index.sort()
+    return {name: values[index] for name, values in selected.items()}
 
 
 def sample_observations(
@@ -106,10 +125,11 @@ def run_inference(
     model_name: str,
     *,
     output_path: Path | None = None,
-    epochs: int = 5,
-    batches_per_epoch: int = 20,
-    batch_size: int = 8,
+    epochs: int = 32,
+    num_simulations: int = 2_000,
+    batch_size: int = 16,
     posterior_draws: int = 2_000,
+    predictive_runs: int = 100,
     diagnostic_datasets: int = 50,
     diagnostic_draws: int = 200,
     diagnostics_path: Path | None = None,
@@ -117,6 +137,13 @@ def run_inference(
     seed: int = 42,
 ) -> dict[str, Any]:
     """Train, infer, and return posterior and diagnostic plots."""
+
+    if num_simulations < 1:
+        raise ValueError("num_simulations must be positive")
+    if epochs < 1:
+        raise ValueError("epochs must be positive")
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
 
     model = resolve_model(model_name)
     observations = load_observations(model.dataset)
@@ -128,9 +155,21 @@ def run_inference(
         seed=seed,
         context=context,
     )
-    workflow.fit_online(
+    with tqdm(
+        total=num_simulations,
+        desc="Training simulations",
+        unit="run",
+    ) as progress:
+        training_simulator = model.to_bayesflow_simulator(
+            summaries,
+            seed=seed,
+            progress=progress.update,
+            **context,
+        )
+        training_data = training_simulator.sample((num_simulations,))
+    workflow.fit_offline(
+        training_data,
         epochs=epochs,
-        num_batches_per_epoch=batches_per_epoch,
         batch_size=batch_size,
     )
 
@@ -141,17 +180,76 @@ def run_inference(
         batch_size=observation_batch_size,
     )
     variable_keys: Sequence[str] = model.inference_variables or ()
-    posterior_for_plot, variable_names = prepare_posterior_plot_data(
+    seeds = np.random.SeedSequence(seed).spawn(3)
+    prior = model.sample_prior(
+        posterior_draws,
+        seed=seeds[0],
+        **context,
+    )
+    posterior_figure = plot_prior_posterior_pairplot(
+        prior,
         posterior,
         variable_keys,
     )
-    grid = bf.diagnostics.plots.pairs_posterior(
-        estimates=posterior_for_plot,
-        dataset_id=0,
-        variable_keys=list(variable_keys),
-        variable_names=variable_names,
-    )
-    plots = {"posterior": grid}
+    plots = {"posterior": posterior_figure}
+
+    if predictive_runs > 0:
+        if predictive_runs < 2:
+            raise ValueError("predictive runs must be at least 2")
+        with tqdm(
+            total=predictive_runs,
+            desc="Prior predictive",
+            unit="run",
+        ) as progress:
+            prior_simulator = model.to_bayesflow_simulator(
+                summaries,
+                seed=seeds[1],
+                include_parameters=False,
+                progress=progress.update,
+                **context,
+            )
+            prior_simulated = prior_simulator.sample((predictive_runs,))
+        prior_frame = summary_frame(prior_simulated, runs=predictive_runs)
+        posterior_draws_for_plot = posterior_parameter_draws(
+            posterior,
+            variable_keys,
+            draws=min(predictive_runs, posterior_draws),
+            rng=np.random.default_rng(seeds[2]),
+        )
+        n_posterior_runs = int(
+            np.asarray(next(iter(posterior_draws_for_plot.values()))).shape[0]
+        )
+        with tqdm(
+            total=n_posterior_runs,
+            desc="Posterior predictive",
+            unit="run",
+        ) as progress:
+            posterior_simulated = model.simulate_summaries(
+                posterior_draws_for_plot,
+                summaries,
+                seed=seeds[2],
+                progress=progress.update,
+                **context,
+            )
+        posterior_frame = summary_frame(
+            posterior_simulated,
+            runs=n_posterior_runs,
+        )
+        observed_frame = summary_frame(
+            observations.conditions,
+            runs=observations.count,
+        )
+        observed = (
+            observed_frame.iloc[0].to_dict()
+            if observations.count == 1
+            else observed_frame
+        )
+        predictive_figure = plot_predictive_summary_pairplot(
+            prior_frame,
+            posterior_frame,
+            observed,
+        )
+        plots["posterior_predictive"] = predictive_figure
 
     if diagnostic_datasets > 0:
         test_data = workflow.simulate(diagnostic_datasets)
@@ -176,17 +274,22 @@ def run_inference(
 
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        grid.figure.savefig(output_path, dpi=160, bbox_inches="tight")
+        posterior_figure.savefig(output_path, dpi=160, bbox_inches="tight")
+        predictive_figure = plots.get("posterior_predictive")
+        if predictive_figure is not None:
+            predictive_figure.savefig(
+                output_path.with_name("posterior_predictive.png"),
+                dpi=160,
+                bbox_inches="tight",
+            )
 
     if diagnostic_datasets > 0 and (
         diagnostics_path is not None or output_path is not None
     ):
-        diagnostics_path = diagnostics_path or output_path.with_name(
-            f"{output_path.stem}_diagnostics"
-        )
+        diagnostics_path = diagnostics_path or output_path.parent / "diagnostics"
         diagnostics_path.mkdir(parents=True, exist_ok=True)
         for name, figure in plots.items():
-            if name != "posterior":
+            if name not in {"posterior", "posterior_predictive"}:
                 figure.savefig(
                     diagnostics_path / f"{name}.png",
                     dpi=160,
@@ -209,12 +312,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        help="output PNG (default: posterior_<model>.png)",
+        help="output PNG (default: output/<model>/posterior.png)",
     )
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batches-per-epoch", type=int, default=20)
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=32,
+        help="passes over the offline training simulations",
+    )
+    parser.add_argument(
+        "--num-simulations",
+        type=int,
+        default=2_000,
+        help="offline training simulations drawn once before fitting",
+    )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--posterior-draws", type=int, default=2_000)
+    parser.add_argument(
+        "--predictive-runs",
+        type=int,
+        default=100,
+        help="prior and posterior predictive simulations; use 0 to skip",
+    )
     parser.add_argument(
         "--diagnostic-datasets",
         type=int,
@@ -249,14 +368,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    output = args.output or Path(f"posterior_{args.model}.png")
+    output = args.output or ROOT / "output" / args.model / "posterior.png"
     run_inference(
         args.model,
         output_path=output,
         epochs=args.epochs,
-        batches_per_epoch=args.batches_per_epoch,
+        num_simulations=args.num_simulations,
         batch_size=args.batch_size,
         posterior_draws=args.posterior_draws,
+        predictive_runs=args.predictive_runs,
         diagnostic_datasets=args.diagnostic_datasets,
         diagnostic_draws=args.diagnostic_draws,
         diagnostics_path=args.diagnostics_dir,
@@ -264,10 +384,14 @@ def main() -> None:
         seed=args.seed,
     )
     print(f"Saved posterior pair plot to {output.resolve()}")
-    if args.diagnostic_datasets > 0:
-        diagnostics_path = args.diagnostics_dir or output.with_name(
-            f"{output.stem}_diagnostics"
+    if args.predictive_runs > 0:
+        predictive_path = output.with_name("posterior_predictive.png")
+        print(
+            "Saved posterior predictive pair plot to "
+            f"{predictive_path.resolve()}"
         )
+    if args.diagnostic_datasets > 0:
+        diagnostics_path = args.diagnostics_dir or output.parent / "diagnostics"
         print(f"Saved default diagnostics to {diagnostics_path.resolve()}")
     if args.show:
         plt.show()

@@ -91,7 +91,13 @@ def sample_prior_predictive(
     return {name: available[name] for name in var_names}
 
 
+def do(model, replacements):
+    del replacements
+    return model
+
+
 fake_pm.sample_prior_predictive = sample_prior_predictive
+fake_pm.do = do
 fake_bf = ModuleType("bayesflow")
 fake_bf.Adapter = FakeAdapter
 fake_bf.simulators = SimpleNamespace(
@@ -106,7 +112,7 @@ import base.model as model_module
 model_module.pm = fake_pm
 model_module.bf = fake_bf
 
-from base.model import Model, validate_contacts
+from base.model import INTERVAL_SECONDS, Model, validate_contacts
 from base.summaries import compute_summaries
 
 
@@ -130,7 +136,10 @@ class ToyModel(Model):
         count = int(rng.integers(4, 8))
         first = np.arange(count, dtype=np.int32) % context["n_people"]
         return {
-            "t": ((np.arange(count, dtype=np.int32) // 2 + 1) * 20),
+            "t": (
+                (np.arange(count, dtype=np.int32) // 2 + 1)
+                * INTERVAL_SECONDS
+            ),
             "i": first,
             "j": (first + 1) % context["n_people"],
         }
@@ -147,6 +156,13 @@ class ModelTests(unittest.TestCase):
         for left, right in zip(first, second):
             for name in left:
                 np.testing.assert_array_equal(left[name], right[name])
+
+    def test_sample_prior_returns_only_inference_variables(self):
+        draws = ToyModel().sample_prior(4, seed=4, n_people=3)
+
+        self.assertEqual(set(draws), {"rate", "propensities"})
+        self.assertEqual(draws["rate"].shape, (4,))
+        self.assertEqual(draws["propensities"].shape, (4, 3))
 
     def test_default_targets_all_free_variables(self):
         class DefaultModel(ToyModel):
@@ -215,6 +231,37 @@ class ModelTests(unittest.TestCase):
             adapter.operations,
         )
 
+    def test_simulate_summaries_from_inferred_draws(self):
+        summaries = ToyModel().simulate_summaries(
+            {
+                "rate": np.full(3, 0.4),
+                "propensities": np.ones((3, 3)),
+            },
+            SUMMARIES,
+            seed=2,
+            n_people=3,
+        )
+
+        self.assertEqual(summaries["contact_count"].shape, (3, 1))
+        self.assertEqual(summaries["participating_people"].shape, (3, 1))
+        self.assertTrue(np.all(summaries["contact_count"] >= 4))
+
+    def test_complete_parameter_draws_fills_simulator_only_variables(self):
+        completed = ToyModel().complete_parameter_draws(
+            {
+                "rate": np.full(2, 0.3),
+                "propensities": np.ones((2, 3)),
+            },
+            np.random.default_rng(3),
+            n_people=3,
+        )
+
+        self.assertEqual(
+            set(completed),
+            {"rate", "propensities", "nuisance", "private_scale"},
+        )
+        self.assertEqual(completed["nuisance"].shape, (2,))
+
     def test_model_collection(self):
         self.assertEqual(
             len(Model.validate_collection([ToyModel(), OtherModel()])), 2
@@ -226,7 +273,10 @@ class ModelTests(unittest.TestCase):
 class DataTests(unittest.TestCase):
     def test_contacts_and_summaries(self):
         contacts = {
-            "t": np.array([20, 40], dtype=np.int32),
+            "t": np.array(
+                [INTERVAL_SECONDS, 2 * INTERVAL_SECONDS],
+                dtype=np.int32,
+            ),
             "i": np.array([0, 1], dtype=np.int32),
             "j": np.array([1, 2], dtype=np.int32),
         }
@@ -238,7 +288,7 @@ class DataTests(unittest.TestCase):
 
     def test_wrong_contact_dtype(self):
         contacts = {
-            "t": np.array([20]),
+            "t": np.array([INTERVAL_SECONDS]),
             "i": np.array([0], dtype=np.int32),
             "j": np.array([1], dtype=np.int32),
         }

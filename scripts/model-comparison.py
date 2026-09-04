@@ -14,7 +14,6 @@ from typing import Any
 
 import bayesflow as bf
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
@@ -27,6 +26,7 @@ from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
 from models import resolve_model
+from visualization.diagnostics import plot_model_probabilities
 
 
 DEFAULT_DIAGNOSTIC_DATASETS = 100
@@ -128,33 +128,6 @@ def predict_observations(
     return np.concatenate(predictions, axis=0)
 
 
-def plot_model_probabilities(
-    probabilities: ArrayLike,
-    model_names: Sequence[str],
-    *,
-    dataset: str,
-) -> Figure:
-    """Plot mean posterior probabilities for the observed dataset."""
-
-    probabilities = extract_probabilities(probabilities, model_names)
-    width = max(6.0, 1.6 * len(model_names))
-    figure, axis = plt.subplots(figsize=(width, 4.5))
-    bars = axis.bar(model_names, probabilities, color="tab:blue", alpha=0.8)
-    axis.bar_label(
-        bars,
-        labels=[f"{probability:.3f}" for probability in probabilities],
-        padding=3,
-    )
-    axis.set_ylim(0.0, 1.05)
-    axis.set_ylabel("Posterior model probability")
-    axis.set_title(
-        f"BayesFlow model comparison for observed {dataset}"
-    )
-    axis.tick_params(axis="x", rotation=20)
-    figure.tight_layout()
-    return figure
-
-
 def run_model_comparison(
     model_names: Sequence[str],
     *,
@@ -234,9 +207,7 @@ def run_model_comparison(
     if diagnostic_datasets > 0 and (
         diagnostics_path is not None or output_path is not None
     ):
-        diagnostics_path = diagnostics_path or output_path.with_name(
-            f"{output_path.stem}_diagnostics"
-        )
+        diagnostics_path = diagnostics_path or output_path.parent / "diagnostics"
         diagnostics_path.mkdir(parents=True, exist_ok=True)
         for name, figure in plots.items():
             if name != "posterior":
@@ -268,7 +239,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        help="output PNG (default: model_comparison.png)",
+        help=(
+            "output PNG "
+            "(default: output/comparisons/<models>/probabilities.png)"
+        ),
     )
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batches-per-epoch", type=int, default=20)
@@ -301,8 +275,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    output = args.output or Path(
-        f"model_comparison_{'_vs_'.join(args.models)}.png"
+    output = args.output or (
+        ROOT
+        / "output"
+        / "comparisons"
+        / "_vs_".join(args.models)
+        / "probabilities.png"
     )
     plots, probabilities = run_model_comparison(
         args.models,
@@ -319,9 +297,7 @@ def main() -> None:
     for name, probability in probabilities.items():
         print(f"{name}: {probability:.3f}")
     if args.diagnostic_datasets > 0:
-        diagnostics_path = args.diagnostics_dir or output.with_name(
-            f"{output.stem}_diagnostics"
-        )
+        diagnostics_path = args.diagnostics_dir or output.parent / "diagnostics"
         print(f"Saved diagnostics to {diagnostics_path.resolve()}")
     if args.show:
         plt.show()

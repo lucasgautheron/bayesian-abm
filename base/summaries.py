@@ -11,6 +11,8 @@ from numpy.typing import ArrayLike, NDArray
 
 from base.model import ContactData, INTERVAL_SECONDS, validate_contacts
 
+HOUR_SECONDS = 60 * INTERVAL_SECONDS
+
 
 SummaryFunction = Callable[[ContactData], ArrayLike]
 Summaries = Mapping[str, SummaryFunction]
@@ -84,7 +86,11 @@ def _cumulative_neighbors(
     return neighbors
 
 
-def _validate_bin_range(start: int, end: int) -> int:
+def _validate_bin_range(
+    start: int,
+    end: int,
+    bin_seconds: int = INTERVAL_SECONDS,
+) -> int:
     if (
         start < INTERVAL_SECONDS
         or end < start
@@ -92,9 +98,15 @@ def _validate_bin_range(start: int, end: int) -> int:
         or end % INTERVAL_SECONDS
     ):
         raise ValueError(
-            "start and end must be ordered positive 20-second boundaries"
+            "start and end must be ordered positive "
+            f"{INTERVAL_SECONDS}-second boundaries"
         )
-    return (end - start) // INTERVAL_SECONDS + 1
+    if bin_seconds < INTERVAL_SECONDS or bin_seconds % INTERVAL_SECONDS:
+        raise ValueError(
+            "bin_seconds must be a positive multiple of "
+            f"{INTERVAL_SECONDS}"
+        )
+    return (end - start + INTERVAL_SECONDS) // bin_seconds
 
 
 def _contacts_per_bin(
@@ -103,12 +115,16 @@ def _contacts_per_bin(
     start: int,
     end: int,
     bin_count: int,
+    bin_seconds: int = INTERVAL_SECONDS,
 ) -> NDArray[np.int64]:
     times = np.asarray(contacts["t"])
     if np.any(times < start) or np.any(times > end):
         raise ValueError("contact times fall outside the summary range")
-    indices = (times - start) // INTERVAL_SECONDS
-    return np.bincount(indices, minlength=bin_count)
+    if bin_count < 1:
+        return np.zeros(0, dtype=np.int64)
+    indices = (times - start) // bin_seconds
+    in_range = indices < bin_count
+    return np.bincount(indices[in_range], minlength=bin_count)
 
 
 def mean_contacts_per_bin(start: int, end: int) -> SummaryFunction:
@@ -128,10 +144,15 @@ def mean_contacts_per_bin(start: int, end: int) -> SummaryFunction:
     return summary
 
 
-def stdev_contacts_per_bin(start: int, end: int) -> SummaryFunction:
-    """Return population standard deviation of concurrent contacts."""
+def lag_one_contact_autocorrelation(
+    start: int,
+    end: int,
+    *,
+    bin_seconds: int = INTERVAL_SECONDS,
+) -> SummaryFunction:
+    """Return lag-one correlation of contact counts in fixed time bins."""
 
-    bin_count = _validate_bin_range(start, end)
+    bin_count = _validate_bin_range(start, end, bin_seconds)
 
     def summary(contacts: ContactData) -> float:
         counts = _contacts_per_bin(
@@ -139,17 +160,49 @@ def stdev_contacts_per_bin(start: int, end: int) -> SummaryFunction:
             start=start,
             end=end,
             bin_count=bin_count,
+            bin_seconds=bin_seconds,
+        ).astype(np.float64)
+        if len(counts) < 2:
+            return 0.0
+        first = counts[:-1] - counts[:-1].mean()
+        second = counts[1:] - counts[1:].mean()
+        denominator = np.linalg.norm(first) * np.linalg.norm(second)
+        return (
+            0.0
+            if np.isclose(denominator, 0.0)
+            else float(np.dot(first, second) / denominator)
         )
-        return float(counts.std())
 
     return summary
 
 
-def lag_one_contact_autocorrelation(
+def lag_one_hourly_contact_autocorrelation(
     start: int,
     end: int,
 ) -> SummaryFunction:
-    """Return lag-one correlation of concurrent contact counts."""
+    """Return lag-one correlation of hourly contact counts.
+
+    Incomplete trailing hours are dropped so every bin covers the same
+    duration.
+    """
+
+    return lag_one_contact_autocorrelation(
+        start,
+        end,
+        bin_seconds=HOUR_SECONDS,
+    )
+
+
+def integrated_contact_autocorrelation_time(
+    start: int,
+    end: int,
+) -> SummaryFunction:
+    """Return the IACT of per-minute contact counts.
+
+    Uses ``τ = 1 + 2 ∑_{k=1}^{K} ρ(k)`` with Geyer's initial-positive
+    sequence: ``K`` is the first lag where the ACF is non-positive.
+    Constant or too-short series return 0.
+    """
 
     bin_count = _validate_bin_range(start, end)
 
@@ -162,14 +215,76 @@ def lag_one_contact_autocorrelation(
         ).astype(np.float64)
         if len(counts) < 2:
             return 0.0
-        first = counts[:-1] - counts[:-1].mean()
-        second = counts[1:] - counts[1:].mean()
-        denominator = np.linalg.norm(first) * np.linalg.norm(second)
-        return (
-            0.0
-            if np.isclose(denominator, 0.0)
-            else float(np.dot(first, second) / denominator)
+        centered = counts - counts.mean()
+        variance = float(np.dot(centered, centered))
+        if np.isclose(variance, 0.0):
+            return 0.0
+        total = 0.0
+        for lag in range(1, len(counts)):
+            rho = float(np.dot(centered[:-lag], centered[lag:]) / variance)
+            if rho <= 0.0:
+                break
+            total += rho
+        return 1.0 + 2.0 * total
+
+    return summary
+
+
+def _occupied_pair_bins(
+    contacts: ContactData,
+    *,
+    start: int,
+    end: int,
+) -> NDArray[np.int64]:
+    """Return unique ``(i, j, bin)`` rows with ``i < j``."""
+
+    times = np.asarray(contacts["t"])
+    if np.any(times < start) or np.any(times > end):
+        raise ValueError("contact times fall outside the summary range")
+    first = np.minimum(contacts["i"], contacts["j"]).astype(np.int64)
+    second = np.maximum(contacts["i"], contacts["j"]).astype(np.int64)
+    if np.any(first == second):
+        raise ValueError("self-contacts are not valid network edges")
+    bins = (times - start) // INTERVAL_SECONDS
+    if not first.size:
+        return np.empty((0, 3), dtype=np.int64)
+    return np.unique(np.stack((first, second, bins), axis=1), axis=0)
+
+
+def mean_contact_run_duration(start: int, end: int) -> SummaryFunction:
+    """Return mean consecutive minutes a pair stays in contact."""
+
+    _validate_bin_range(start, end)
+
+    def summary(contacts: ContactData) -> float:
+        occupied = _occupied_pair_bins(contacts, start=start, end=end)
+        if not occupied.size:
+            return 0.0
+        new_run = np.empty(len(occupied), dtype=np.bool_)
+        new_run[0] = True
+        new_run[1:] = (
+            (occupied[1:, 0] != occupied[:-1, 0])
+            | (occupied[1:, 1] != occupied[:-1, 1])
+            | (occupied[1:, 2] != occupied[:-1, 2] + 1)
         )
+        starts = np.flatnonzero(new_run)
+        lengths = np.diff(np.append(starts, len(occupied)))
+        return float(lengths.mean())
+
+    return summary
+
+
+def mean_pair_contact_duration(start: int, end: int) -> SummaryFunction:
+    """Return mean total minutes of contact among pairs that ever meet."""
+
+    _validate_bin_range(start, end)
+
+    def summary(contacts: ContactData) -> float:
+        occupied = _occupied_pair_bins(contacts, start=start, end=end)
+        if not occupied.size:
+            return 0.0
+        _, counts = np.unique(occupied[:, :2], axis=0, return_counts=True)
+        return float(counts.mean())
 
     return summary
 
@@ -200,6 +315,36 @@ def contact_time_coefficient_of_variation(
         return 0.0 if np.isclose(mean, 0.0) else float(totals.std() / mean)
 
     return summary
+
+def cumulative_network_giant_component(
+    agent_ids: Sequence[int],
+) -> SummaryFunction:
+    """Return the fraction of agents in the largest connected component."""
+
+    agents = _agent_sequence(agent_ids)
+
+    def summary(contacts: ContactData) -> float:
+        neighbors = _cumulative_neighbors(contacts, agents)
+        seen = [False] * len(agents)
+        giant = 0
+        for start in range(len(agents)):
+            if seen[start]:
+                continue
+            size = 0
+            stack = [start]
+            seen[start] = True
+            while stack:
+                node = stack.pop()
+                size += 1
+                for adjacent in neighbors[node]:
+                    if not seen[adjacent]:
+                        seen[adjacent] = True
+                        stack.append(adjacent)
+            giant = max(giant, size)
+        return giant / len(agents)
+
+    return summary
+
 
 def cumulative_network_connectivity(
     agent_ids: Sequence[int],
@@ -293,16 +438,6 @@ def _build_mean_contacts_per_bin(
     )
 
 
-def _build_stdev_contacts_per_bin(
-    _n_agents: int,
-    n_steps: int,
-) -> SummaryFunction:
-    return stdev_contacts_per_bin(
-        INTERVAL_SECONDS,
-        n_steps * INTERVAL_SECONDS,
-    )
-
-
 def _build_lag_one_contact_autocorrelation(
     _n_agents: int,
     n_steps: int,
@@ -313,11 +448,58 @@ def _build_lag_one_contact_autocorrelation(
     )
 
 
+def _build_lag_one_hourly_contact_autocorrelation(
+    _n_agents: int,
+    n_steps: int,
+) -> SummaryFunction:
+    return lag_one_hourly_contact_autocorrelation(
+        INTERVAL_SECONDS,
+        n_steps * INTERVAL_SECONDS,
+    )
+
+
+def _build_integrated_contact_autocorrelation_time(
+    _n_agents: int,
+    n_steps: int,
+) -> SummaryFunction:
+    return integrated_contact_autocorrelation_time(
+        INTERVAL_SECONDS,
+        n_steps * INTERVAL_SECONDS,
+    )
+
+
+def _build_mean_contact_run_duration(
+    _n_agents: int,
+    n_steps: int,
+) -> SummaryFunction:
+    return mean_contact_run_duration(
+        INTERVAL_SECONDS,
+        n_steps * INTERVAL_SECONDS,
+    )
+
+
+def _build_mean_pair_contact_duration(
+    _n_agents: int,
+    n_steps: int,
+) -> SummaryFunction:
+    return mean_pair_contact_duration(
+        INTERVAL_SECONDS,
+        n_steps * INTERVAL_SECONDS,
+    )
+
+
 def _build_contact_time_coefficient_of_variation(
     n_agents: int,
     _n_steps: int,
 ) -> SummaryFunction:
     return contact_time_coefficient_of_variation(range(n_agents))
+
+
+def _build_cumulative_network_giant_component(
+    n_agents: int,
+    _n_steps: int,
+) -> SummaryFunction:
+    return cumulative_network_giant_component(range(n_agents))
 
 
 def _build_cumulative_network_connectivity(
@@ -343,12 +525,22 @@ def _build_cumulative_network_assortativity(
 
 SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
     "mean_contacts_per_bin": _build_mean_contacts_per_bin,
-    "stdev_contacts_per_bin": _build_stdev_contacts_per_bin,
     "lag_one_contact_autocorrelation": (
         _build_lag_one_contact_autocorrelation
     ),
+    "lag_one_hourly_contact_autocorrelation": (
+        _build_lag_one_hourly_contact_autocorrelation
+    ),
+    "integrated_contact_autocorrelation_time": (
+        _build_integrated_contact_autocorrelation_time
+    ),
+    "mean_contact_run_duration": _build_mean_contact_run_duration,
+    "mean_pair_contact_duration": _build_mean_pair_contact_duration,
     "contact_time_coefficient_of_variation": (
         _build_contact_time_coefficient_of_variation
+    ),
+    "cumulative_network_giant_component": (
+        _build_cumulative_network_giant_component
     ),
     "cumulative_network_connectivity": (
         _build_cumulative_network_connectivity
@@ -377,6 +569,7 @@ def make_summaries(
 
 
 __all__ = [
+    "HOUR_SECONDS",
     "INTERVAL_SECONDS",
     "SUMMARY_BUILDERS",
     "Summaries",
@@ -388,8 +581,12 @@ __all__ = [
     "cumulative_network_assortativity",
     "cumulative_network_clustering",
     "cumulative_network_connectivity",
+    "cumulative_network_giant_component",
+    "integrated_contact_autocorrelation_time",
     "lag_one_contact_autocorrelation",
+    "lag_one_hourly_contact_autocorrelation",
     "make_summaries",
+    "mean_contact_run_duration",
     "mean_contacts_per_bin",
-    "stdev_contacts_per_bin",
+    "mean_pair_contact_duration",
 ]

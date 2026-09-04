@@ -17,7 +17,14 @@ from base.observations import (
     story_daily_frame_observations,
 )
 from models import model_registry, resolve_model
-from models.stories import StoryCompetitionModel, validate_story_data
+from models.stories import (
+    GeneralizedSIRModel,
+    LatentRateModel,
+    LimitedAttentionModel,
+    LinearInfluenceModel,
+    StoryCompetitionModel,
+    validate_story_data,
+)
 
 
 def story_frame() -> pd.DataFrame:
@@ -71,9 +78,14 @@ class StoryObservationTests(unittest.TestCase):
             [STORY_DAILY],
         )
         expected = {
-            "selected_story_count": 2.0,
             "total_mentions": 10.0,
             "daily_total_stdev": np.std([4, 2, 4]),
+            "mean_story_autocorrelation": np.mean(
+                [
+                    np.corrcoef([0, 2], [2, 1])[0, 1],
+                    np.corrcoef([4, 0], [0, 3])[0, 1],
+                ]
+            ),
             "mean_reporting_story_count": 4.0 / 3.0,
             "story_mentions_coefficient_of_variation": 0.4,
             "mean_reporting_lifetime_days": 2.5,
@@ -121,7 +133,13 @@ class StoryObservationTests(unittest.TestCase):
         self.assertTrue(model_registry("contacts"))
         self.assertEqual(
             model_registry(STORY_DAILY),
-            {StoryCompetitionModel.name: StoryCompetitionModel},
+            {
+                StoryCompetitionModel.name: StoryCompetitionModel,
+                LimitedAttentionModel.name: LimitedAttentionModel,
+                LinearInfluenceModel.name: LinearInfluenceModel,
+                GeneralizedSIRModel.name: GeneralizedSIRModel,
+                LatentRateModel.name: LatentRateModel,
+            },
         )
 
     def test_resolves_a_model_without_a_dataset_argument(self) -> None:

@@ -12,50 +12,27 @@ from numpy.typing import ArrayLike, NDArray
 from .base import StoryModel
 
 
-def _positive_integer(value: Any, name: str) -> int:
-    if (
-        isinstance(value, (bool, np.bool_))
-        or not isinstance(value, (int, np.integer))
-        or value < 1
-    ):
-        raise ValueError(f"{name} must be a positive integer")
-    return int(value)
-
-
 def story_choice_probabilities(
     ages: ArrayLike,
     appeals: ArrayLike,
+    cumulative_mentions: ArrayLike,
     *,
     beta_age: float,
     beta_appeal: float,
+    reinforcement: float,
     n_days: int,
 ) -> NDArray[np.float64]:
-    """Return stable softmax probabilities for active stories."""
+    """Return stable age-, appeal-, and reinforcement-weighted probabilities."""
 
-    n_days = _positive_integer(n_days, "n_days")
     age_values = np.asarray(ages, dtype=np.float64)
     appeal_values = np.asarray(appeals, dtype=np.float64)
-    if (
-        age_values.ndim != 1
-        or appeal_values.ndim != 1
-        or age_values.shape != appeal_values.shape
-        or len(age_values) == 0
-    ):
-        raise ValueError(
-            "ages and appeals must be non-empty one-dimensional arrays "
-            "with equal lengths"
-        )
-    if (
-        not np.all(np.isfinite(age_values))
-        or np.any(age_values < 0)
-        or not np.all(np.isfinite(appeal_values))
-        or not np.isfinite(beta_age)
-        or not np.isfinite(beta_appeal)
-    ):
-        raise ValueError("softmax inputs must be finite and ages non-negative")
-
+    mention_values = np.asarray(cumulative_mentions, dtype=np.float64)
     normalized_ages = age_values / max(n_days - 1, 1)
-    logits = beta_age * normalized_ages + beta_appeal * appeal_values
+    logits = (
+        beta_age * normalized_ages
+        + beta_appeal * appeal_values
+        + reinforcement * np.log1p(mention_values)
+    )
     weights = np.exp(logits - logits.max())
     return weights / weights.sum()
 
@@ -69,6 +46,7 @@ class StoryCompetitionModel(StoryModel):
         "report_rate",
         "beta_age",
         "beta_appeal",
+        "reinforcement",
     )
 
     def build_prior(self, **context: Any) -> pm.Model:
@@ -86,6 +64,7 @@ class StoryCompetitionModel(StoryModel):
             )
             pm.Normal("beta_age", mu=0.0, sigma=1.0)
             pm.HalfNormal("beta_appeal", sigma=1.0)
+            pm.HalfNormal("reinforcement", sigma=1.0)
         return prior
 
     def simulate(
@@ -94,19 +73,12 @@ class StoryCompetitionModel(StoryModel):
         rng: np.random.Generator,
         **context: Any,
     ) -> Mapping[str, ArrayLike]:
-        try:
-            n_days = _positive_integer(context["n_days"], "n_days")
-        except KeyError as exc:
-            raise ValueError("story models require n_days") from exc
-
+        n_days = int(context["n_days"])
         story_rate = parameters["story_rate"]
         report_rate = parameters["report_rate"]
         beta_age = parameters["beta_age"]
         beta_appeal = parameters["beta_appeal"]
-        if story_rate <= 0 or report_rate <= 0:
-            raise ValueError("story_rate and report_rate must be positive")
-        if beta_appeal < 0:
-            raise ValueError("beta_appeal must be non-negative")
+        reinforcement = parameters["reinforcement"]
 
         births = np.asarray(
             rng.poisson(story_rate, size=n_days),
@@ -121,6 +93,7 @@ class StoryCompetitionModel(StoryModel):
             dtype=np.float64,
         )
         mentions = np.zeros((len(birth_days), n_days), dtype=np.int64)
+        cumulative_mentions = np.zeros(len(birth_days), dtype=np.int64)
 
         active_count = 0
         for day, birth_count in enumerate(births):
@@ -132,14 +105,18 @@ class StoryCompetitionModel(StoryModel):
             probabilities = story_choice_probabilities(
                 day - birth_days[:active_count],
                 appeals[:active_count],
+                cumulative_mentions[:active_count],
                 beta_age=beta_age,
                 beta_appeal=beta_appeal,
+                reinforcement=reinforcement,
                 n_days=n_days,
             )
-            mentions[:active_count, day] = rng.multinomial(
+            daily_mentions = rng.multinomial(
                 report_count,
                 probabilities,
             )
+            mentions[:active_count, day] = daily_mentions
+            cumulative_mentions[:active_count] += daily_mentions
 
         return {"mentions": mentions}
 

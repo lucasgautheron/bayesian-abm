@@ -17,7 +17,7 @@ STEPS_PER_MINUTE = 60 // INTERVAL_SECONDS
 
 
 def per_step_probability(p_minute: float) -> float:
-    """Convert a per-minute probability to one 20-second step."""
+    """Convert a per-minute probability to one simulation step."""
 
     return 1.0 - (1.0 - p_minute) ** (1.0 / STEPS_PER_MINUTE)
 
@@ -37,10 +37,88 @@ def duration_in_steps(
     rng: np.random.Generator,
     mean_minutes: float,
 ) -> int:
-    """Draw an exponential duration and round it up to 20-second steps."""
+    """Draw an exponential duration and round it up to simulation steps."""
 
     duration_minutes = rng.exponential(scale=mean_minutes)
     return max(1, int(np.ceil(duration_minutes * STEPS_PER_MINUTE)))
+
+
+def simulate_exclusive_conversations(
+    rng: np.random.Generator,
+    *,
+    n_agents: int,
+    n_steps: int,
+    p_step: float,
+    mean_duration: float,
+    choose_partner,
+) -> dict[str, NDArray[np.int32]]:
+    """Run exclusive conversations and emit one contact row per active step."""
+
+    busy_until = np.zeros(n_agents, dtype=np.int64)
+    conversations: list[tuple[int, int, int]] = []
+    times: list[NDArray[np.int32]] = []
+    first_agents: list[NDArray[np.int32]] = []
+    second_agents: list[NDArray[np.int32]] = []
+
+    for step in range(n_steps):
+        if conversations:
+            conversations = [
+                conversation
+                for conversation in conversations
+                if conversation[2] > step
+            ]
+
+        available = np.flatnonzero(busy_until <= step)
+        n_free = int(available.size)
+        if n_free >= 2:
+            for initiator in rng.permutation(available):
+                initiator = int(initiator)
+                if busy_until[initiator] > step:
+                    continue
+                if n_free < 2:
+                    break
+                if rng.random() >= p_step:
+                    continue
+
+                candidates = np.flatnonzero(busy_until <= step)
+                candidates = candidates[candidates != initiator]
+                partner = choose_partner(initiator, candidates)
+                if partner is None:
+                    continue
+                partner = int(partner)
+                duration = duration_in_steps(rng, mean_duration)
+                end = step + duration
+                busy_until[initiator] = end
+                busy_until[partner] = end
+                conversations.append((initiator, partner, end))
+                n_free -= 2
+
+        if conversations:
+            time = np.int32((step + 1) * INTERVAL_SECONDS)
+            times.append(np.full(len(conversations), time, dtype=np.int32))
+            first_agents.append(
+                np.fromiter(
+                    (first for first, _, _ in conversations),
+                    dtype=np.int32,
+                    count=len(conversations),
+                )
+            )
+            second_agents.append(
+                np.fromiter(
+                    (second for _, second, _ in conversations),
+                    dtype=np.int32,
+                    count=len(conversations),
+                )
+            )
+
+    if not times:
+        empty = np.empty(0, dtype=np.int32)
+        return {"t": empty, "i": empty, "j": empty}
+    return {
+        "t": np.concatenate(times),
+        "i": np.concatenate(first_agents),
+        "j": np.concatenate(second_agents),
+    }
 
 
 class ReputationConversationModel(ContactModel):
@@ -80,68 +158,31 @@ class ReputationConversationModel(ContactModel):
         rng: np.random.Generator,
         **context: Any,
     ) -> Mapping[str, ArrayLike]:
-        n_agents = context["n_agents"]
-        n_steps = context["n_steps"]
-        if n_agents < 2 or n_steps < 1:
-            raise ValueError("n_agents must be at least 2 and n_steps positive")
-
+        n_agents = int(context["n_agents"])
+        n_steps = int(context["n_steps"])
         reputations = np.asarray(parameters["reputation"])
         p_step = per_step_probability(parameters["p_minute"])
         mean_duration = parameters["mean_duration_minutes"]
+        weights = np.exp(reputations - np.max(reputations))
 
-        # Conversations are (initiator, partner, exclusive end step).
-        conversations: list[tuple[int, int, int]] = []
-        times: list[int] = []
-        first_agents: list[int] = []
-        second_agents: list[int] = []
-
-        for step in range(n_steps):
-            conversations = [
-                conversation
-                for conversation in conversations
-                if conversation[2] > step
-            ]
-            busy = {
-                agent
-                for first, second, _ in conversations
-                for agent in (first, second)
-            }
-            available = set(range(n_agents)).difference(busy)
-
-            for initiator in rng.permutation(tuple(available)):
-                initiator = int(initiator)
-                if initiator not in available or len(available) < 2:
-                    continue
-                if rng.random() >= p_step:
-                    continue
-
-                candidates = sorted(available.difference({initiator}))
-                probabilities = partner_probabilities(
-                    reputations,
+        def choose_partner(initiator: int, candidates: NDArray[np.intp]) -> int:
+            del initiator
+            partner_weights = weights[candidates]
+            return int(
+                rng.choice(
                     candidates,
+                    p=partner_weights / partner_weights.sum(),
                 )
-                partner = int(rng.choice(candidates, p=probabilities))
-                duration = duration_in_steps(
-                    rng,
-                    mean_duration,
-                )
-                conversations.append(
-                    (initiator, partner, step + duration)
-                )
-                available.remove(initiator)
-                available.remove(partner)
+            )
 
-            time = (step + 1) * INTERVAL_SECONDS
-            for first, second, _ in conversations:
-                times.append(time)
-                first_agents.append(first)
-                second_agents.append(second)
-
-        return {
-            "t": np.asarray(times, dtype=np.int32),
-            "i": np.asarray(first_agents, dtype=np.int32),
-            "j": np.asarray(second_agents, dtype=np.int32),
-        }
+        return simulate_exclusive_conversations(
+            rng,
+            n_agents=n_agents,
+            n_steps=n_steps,
+            p_step=p_step,
+            mean_duration=mean_duration,
+            choose_partner=choose_partner,
+        )
 
 
 __all__ = [
@@ -149,4 +190,5 @@ __all__ = [
     "duration_in_steps",
     "partner_probabilities",
     "per_step_probability",
+    "simulate_exclusive_conversations",
 ]

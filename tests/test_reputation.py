@@ -13,7 +13,7 @@ import numpy as np
 sys.modules.setdefault("pymc", ModuleType("pymc"))
 sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
-from base.model import validate_contacts
+from base.model import INTERVAL_SECONDS, validate_contacts
 from models import MODEL_CLASSES, MODEL_REGISTRY, ReputationConversationModel
 from models.contacts.reputation import (
     duration_in_steps,
@@ -106,7 +106,9 @@ class PriorAndHelperTests(unittest.TestCase):
     def test_minute_probability_conversion_is_exact(self) -> None:
         for p_minute in (0.01, 0.1, 0.5, 1.0):
             p_step = per_step_probability(p_minute)
-            reconstructed = 1.0 - (1.0 - p_step) ** 3
+            reconstructed = 1.0 - (
+                1.0 - p_step
+            ) ** (60 // INTERVAL_SECONDS)
             self.assertAlmostEqual(reconstructed, p_minute)
 
     def test_partner_probabilities_are_a_softmax(self) -> None:
@@ -129,7 +131,7 @@ class PriorAndHelperTests(unittest.TestCase):
         steps = duration_in_steps(rng, mean_minutes=6.0)
 
         self.assertEqual(rng.scale, 6.0)
-        self.assertEqual(steps, 4)
+        self.assertEqual(steps, 2)
 
 
 class SimulationTests(unittest.TestCase):

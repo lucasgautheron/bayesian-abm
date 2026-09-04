@@ -63,6 +63,7 @@ PARAMETERS = {
     "report_rate": np.asarray(10.0),
     "beta_age": np.asarray(-1.0),
     "beta_appeal": np.asarray(1.5),
+    "reinforcement": np.asarray(1.0),
 }
 
 
@@ -87,6 +88,7 @@ class PriorAndHelperTests(unittest.TestCase):
                 ("LogNormal", "report_rate"),
                 ("Normal", "beta_age"),
                 ("HalfNormal", "beta_appeal"),
+                ("HalfNormal", "reinforcement"),
             ],
         )
         self.assertEqual(
@@ -96,6 +98,7 @@ class PriorAndHelperTests(unittest.TestCase):
                 "report_rate",
                 "beta_age",
                 "beta_appeal",
+                "reinforcement",
             ),
         )
         story_prior = prior.variables[0][2]
@@ -109,8 +112,10 @@ class PriorAndHelperTests(unittest.TestCase):
         probabilities = story_choice_probabilities(
             [0, 9],
             [1.0, -1.0],
+            [0, 0],
             beta_age=-2.0,
             beta_appeal=0.5,
+            reinforcement=1.0,
             n_days=10,
         )
 
@@ -118,6 +123,19 @@ class PriorAndHelperTests(unittest.TestCase):
         expected = np.exp(expected_logits - expected_logits.max())
         expected /= expected.sum()
         np.testing.assert_allclose(probabilities, expected)
+
+    def test_choice_probabilities_reinforce_previous_mentions(self) -> None:
+        probabilities = story_choice_probabilities(
+            [0, 0],
+            [0.0, 0.0],
+            [0, 8],
+            beta_age=0.0,
+            beta_appeal=0.0,
+            reinforcement=1.0,
+            n_days=10,
+        )
+
+        np.testing.assert_allclose(probabilities, [0.1, 0.9])
 
     def test_top_story_selection_is_permutation_invariant(self) -> None:
         mentions = np.asarray(
@@ -174,11 +192,19 @@ class PriorAndHelperTests(unittest.TestCase):
         }
         values = {name: summary(data) for name, summary in summaries.items()}
 
-        self.assertEqual(values["selected_story_count"], 2.0)
         self.assertEqual(values["total_mentions"], 4.0)
         self.assertAlmostEqual(
             values["daily_total_stdev"],
             np.std([1, 2, 1]),
+        )
+        self.assertAlmostEqual(
+            values["mean_story_autocorrelation"],
+            np.mean(
+                [
+                    np.corrcoef([1, 0], [0, 1])[0, 1],
+                    np.corrcoef([0, 2], [2, 0])[0, 1],
+                ]
+            ),
         )
         self.assertEqual(values["mean_reporting_story_count"], 1.0)
         self.assertEqual(
@@ -262,24 +288,6 @@ class SimulationTests(unittest.TestCase):
         np.testing.assert_array_equal(result.sum(axis=0), [0, 4, 5])
         self.assertEqual(result[2, 1], 0)
         self.assertAlmostEqual(rng.probabilities.sum(), 1.0)
-
-    def test_invalid_context_and_parameters_are_rejected(self) -> None:
-        model = StoryCompetitionModel()
-
-        with self.assertRaisesRegex(ValueError, "require n_days"):
-            model.simulate(PARAMETERS, np.random.default_rng(1))
-        with self.assertRaisesRegex(ValueError, "positive"):
-            model.simulate(
-                {**PARAMETERS, "story_rate": np.asarray(0.0)},
-                np.random.default_rng(1),
-                n_days=3,
-            )
-        with self.assertRaisesRegex(ValueError, "non-negative"):
-            model.simulate(
-                {**PARAMETERS, "beta_appeal": np.asarray(-1.0)},
-                np.random.default_rng(1),
-                n_days=3,
-            )
 
 
 if __name__ == "__main__":

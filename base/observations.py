@@ -88,7 +88,9 @@ def load_contacts(path: Path) -> tuple[ContactData, int, int]:
 
     times = frame["t"].to_numpy()
     if np.any(times % INTERVAL_SECONDS):
-        raise ValueError("contact times must fall on 20-second boundaries")
+        raise ValueError(
+            f"contact times must fall on {INTERVAL_SECONDS}-second boundaries"
+        )
 
     agent_ids = np.unique(
         np.concatenate(
