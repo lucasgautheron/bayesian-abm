@@ -1,0 +1,79 @@
+# Byte-compiled / optimized Python files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments and local configuration
+.env
+.env.*
+!.env.example
+.envrc
+.venv/
+env/
+venv/
+ENV/
+
+# Tests, coverage, and static-analysis caches
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.nox/
+.pytest_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+.tox/
+coverage.xml
+*.cover
+*.py.cover
+
+# Jupyter and IPython
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*~
+*.swp
+
+# Generated datasets and downloaded MemeTracker source data
+data/**/*.parquet
+data/memes/*.txt.gz
+
+# Generated plots and diagnostics
+/simulations_*.png
+/posterior_*.png
+/posterior_*_diagnostics/
+/model_comparison.png
+/model_comparison_diagnostics/
+/visualization/contacts*.png
+/visualization/temporal_*/
