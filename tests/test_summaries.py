@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import sys
 import unittest
+from types import ModuleType
 
 import numpy as np
+
+sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
+sys.modules.setdefault("pymc", ModuleType("pymc"))
 
 from base.summaries import (
     SUMMARY_BUILDERS,

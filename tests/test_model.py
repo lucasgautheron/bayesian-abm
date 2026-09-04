@@ -101,7 +101,13 @@ fake_bf.simulators = SimpleNamespace(
 sys.modules["pymc"] = fake_pm
 sys.modules["bayesflow"] = fake_bf
 
-from base.abm import Model, compute_summaries, validate_contacts
+import base.model as model_module
+
+model_module.pm = fake_pm
+model_module.bf = fake_bf
+
+from base.model import Model, validate_contacts
+from base.summaries import compute_summaries
 
 
 SUMMARIES = {
@@ -169,6 +175,19 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(result["rate"].shape, (5,))
         self.assertEqual(result["propensities"].shape, (5, 3))
         self.assertEqual(result["people"].shape, (5, 2))
+
+    def test_batched_simulator_reports_completed_simulations(self):
+        updates = []
+        simulator = ToyModel().to_bayesflow_simulator(
+            SUMMARIES,
+            seed=1,
+            progress=updates.append,
+            n_people=3,
+        )
+
+        simulator.sample((2, 3))
+
+        self.assertEqual(updates, [1] * 6)
 
     def test_adapter_uses_pymc_transforms(self):
         adapter = ToyModel().make_bayesflow_adapter(

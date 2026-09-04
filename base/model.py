@@ -1,4 +1,4 @@
-"""PyMC priors and likelihood-free contact models for BayesFlow."""
+"""PyMC priors and likelihood-free simulators for BayesFlow."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ INTERVAL_SECONDS = 20
 CONTACT_KEYS = ("t", "i", "j")
 
 ContactData = dict[str, NDArray[np.int32]]
+SimulationData = dict[str, NDArray[Any]]
 ParameterData = dict[str, NDArray[Any]]
 Seed = Union[
     int,
@@ -58,14 +59,17 @@ def _bound_value(value: Any) -> float | None:
 
 
 class Model(ABC):
-    """A PyMC prior paired with a likelihood-free contact simulator.
+    """A PyMC prior paired with a likelihood-free simulator.
 
     Every free variable is an inference target by default. Set
     ``inference_variables`` to a subset when the prior also contains nuisance
-    variables needed only by the simulator.
+    variables needed only by the simulator. The default simulation contract is
+    the contact schema; dataset-specific model bases may override the
+    validation and summarization hooks.
     """
 
     name: ClassVar[str] = ""
+    dataset: ClassVar[str] = "contacts"
     inference_variables: ClassVar[Sequence[str] | None] = None
 
     @abstractmethod
@@ -79,7 +83,32 @@ class Model(ABC):
         rng: np.random.Generator,
         **context: Any,
     ) -> Mapping[str, ArrayLike]:
-        """Simulate contact records without evaluating a likelihood."""
+        """Simulate native records without evaluating a likelihood."""
+
+    def validate_simulation(
+        self,
+        simulation: Mapping[str, ArrayLike],
+        **context: Any,
+    ) -> SimulationData:
+        """Validate and normalize one native simulation."""
+
+        del context
+        return validate_contacts(simulation)
+
+    def summarize(
+        self,
+        simulation: Mapping[str, ArrayLike],
+        summaries: Summaries,
+        **context: Any,
+    ) -> dict[str, NDArray[Any]]:
+        """Validate one simulation and compute its inference conditions."""
+
+        from base.summaries import compute_summaries
+
+        return compute_summaries(
+            self.validate_simulation(simulation, **context),
+            summaries,
+        )
 
     def _prior(
         self,
@@ -123,16 +152,19 @@ class Model(ABC):
         *,
         seed: Seed = None,
         **context: Any,
-    ) -> tuple[ParameterData, ContactData]:
-        """Draw parameters and one native contact simulation."""
+    ) -> tuple[ParameterData, SimulationData]:
+        """Draw parameters and one native simulation."""
 
         rng = np.random.default_rng(seed)
         prior, inference_names, simulator_names = self._prior(context)
         draws = self._draw_prior(prior, simulator_names, 1, rng)
         parameters = {name: values[0] for name, values in draws.items()}
-        contacts = validate_contacts(self.simulate(parameters, rng, **context))
+        simulation = self.validate_simulation(
+            self.simulate(parameters, rng, **context),
+            **context,
+        )
         inferred = {name: parameters[name] for name in inference_names}
-        return inferred, contacts
+        return inferred, simulation
 
     def as_bayesflow_simulator(
         self,
@@ -144,16 +176,19 @@ class Model(ABC):
     ) -> Callable[..., dict[str, NDArray[Any]]]:
         """Return an unbatched simulator accepted by ``bf.make_simulator``."""
 
-        from base.summaries import compute_summaries
-
         rng = np.random.default_rng(seed)
 
         def simulator(**context: Any) -> dict[str, NDArray[Any]]:
-            parameters, contacts = self.sample(
+            simulation_context = {**fixed_context, **context}
+            parameters, simulation = self.sample(
                 seed=rng,
-                **{**fixed_context, **context},
+                **simulation_context,
             )
-            result = compute_summaries(contacts, summaries)
+            result = self.summarize(
+                simulation,
+                summaries,
+                **simulation_context,
+            )
             return {**parameters, **result} if include_parameters else result
 
         return simulator
@@ -167,8 +202,6 @@ class Model(ABC):
         progress: Callable[[int], object] | None,
         context: Mapping[str, Any],
     ) -> Callable[..., dict[str, NDArray[Any]]]:
-        from base.summaries import compute_summaries
-
         prior, inference_names, simulator_names = self._prior(context)
         rng = np.random.default_rng(seed)
 
@@ -186,12 +219,14 @@ class Model(ABC):
                 parameters = {
                     name: values[index] for name, values in draws.items()
                 }
-                contacts = validate_contacts(
-                    self.simulate(parameters, rng, **simulation_context)
+                simulation = self.validate_simulation(
+                    self.simulate(parameters, rng, **simulation_context),
+                    **simulation_context,
                 )
-                for name, value in compute_summaries(
-                    contacts,
+                for name, value in self.summarize(
+                    simulation,
                     summaries,
+                    **simulation_context,
                 ).items():
                     summary_draws[name].append(value)
                 if progress is not None:
@@ -277,7 +312,7 @@ class Model(ABC):
 
         summary_names = list(summaries)
         names = list(inference_names) + summary_names
-        return (
+        adapter = (
             adapter.to_array(include=names)
             .convert_dtype("float64", "float32", include=names)
             .expand_dims(scalar_names, axis=-1)
@@ -285,8 +320,29 @@ class Model(ABC):
                 list(inference_names),
                 into="inference_variables",
             )
-            .concatenate(summary_names, into="summary_variables")
         )
+        return self._adapt_summary_variables(adapter, summary_names)
+
+    def _adapt_summary_variables(
+        self,
+        adapter: bf.Adapter,
+        summary_names: Sequence[str],
+    ) -> bf.Adapter:
+        """Route native summaries to a BayesFlow summary tensor."""
+
+        return adapter.concatenate(
+            list(summary_names),
+            into="summary_variables",
+        )
+
+    def make_bayesflow_summary_network(
+        self,
+        **context: Any,
+    ) -> Any | None:
+        """Return an optional learned summary network for this model family."""
+
+        del context
+        return None
 
     @staticmethod
     def make_bayesflow_model_comparison_adapter(
@@ -304,7 +360,7 @@ class Model(ABC):
 
     @staticmethod
     def validate_collection(models: Sequence[Model]) -> tuple[Model, ...]:
-        """Check that a model-comparison collection has unique names."""
+        """Check that compared models are unique and share a dataset."""
 
         models = tuple(models)
         names = [model.name for model in models]
@@ -312,6 +368,9 @@ class Model(ABC):
             raise ValueError("model comparison requires at least two models")
         if len(names) != len(set(names)):
             raise ValueError("model names must be unique")
+        datasets = {model.dataset for model in models}
+        if len(datasets) != 1:
+            raise ValueError("compared models must use the same dataset")
         return models
 
 
@@ -321,5 +380,6 @@ __all__ = [
     "ContactData",
     "Model",
     "ParameterData",
+    "SimulationData",
     "validate_contacts",
 ]

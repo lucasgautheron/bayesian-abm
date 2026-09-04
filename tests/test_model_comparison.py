@@ -3,8 +3,9 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -28,6 +29,14 @@ class ModelComparisonTests(unittest.TestCase):
 
         np.testing.assert_allclose(probabilities, [0.25, 0.75])
 
+    def test_averages_probabilities_across_observed_series(self) -> None:
+        probabilities = model_comparison.extract_probabilities(
+            [[0.25, 0.75], [0.75, 0.25]],
+            ["first", "second"],
+        )
+
+        np.testing.assert_allclose(probabilities, [0.5, 0.5])
+
     def test_rejects_invalid_probabilities(self) -> None:
         with self.assertRaisesRegex(ValueError, "invalid"):
             model_comparison.extract_probabilities(
@@ -36,10 +45,91 @@ class ModelComparisonTests(unittest.TestCase):
             )
 
     def test_rejects_duplicate_models(self) -> None:
-        model_name = next(iter(model_comparison.MODEL_REGISTRY))
-
         with self.assertRaisesRegex(ValueError, "unique"):
-            model_comparison.resolve_models([model_name, model_name])
+            model_comparison.resolve_models(
+                ["reputation_conversation", "reputation_conversation"]
+            )
+
+    def test_rejects_models_from_different_datasets(self) -> None:
+        with self.assertRaisesRegex(ValueError, "same dataset"):
+            model_comparison.resolve_models(
+                ["reputation_conversation", "story_competition"]
+            )
+
+    def test_predicts_observations_in_batches(self) -> None:
+        class Approximator:
+            def __init__(self) -> None:
+                self.batch_sizes: list[int] = []
+
+            def predict(self, *, conditions, probs):
+                self.assert_probs = probs
+                count = len(conditions["mentions"])
+                self.batch_sizes.append(count)
+                return np.tile([0.25, 0.75], (count, 1))
+
+        approximator = Approximator()
+        prediction = model_comparison.predict_observations(
+            approximator,
+            {"mentions": np.arange(10).reshape(5, 2)},
+            batch_size=2,
+        )
+
+        self.assertEqual(approximator.batch_sizes, [2, 2, 1])
+        self.assertEqual(prediction.shape, (5, 2))
+
+    def test_uses_learned_summary_network_for_story_models(self) -> None:
+        class StoryModel:
+            dataset = "story_daily"
+
+            def __init__(self, name):
+                self.name = name
+
+            def to_bayesflow_simulator(self, summaries, **kwargs):
+                return (self.name, summaries, kwargs)
+
+            def make_bayesflow_summary_network(self, **context):
+                self.network_context = context
+                return "story_encoder"
+
+            def make_bayesflow_model_comparison_adapter(self, summaries):
+                self.adapter_summaries = summaries
+                return "story_adapter"
+
+        class ComparisonSimulator:
+            def __init__(self, **kwargs):
+                self.arguments = kwargs
+
+        fake_bf = SimpleNamespace(
+            simulators=SimpleNamespace(
+                ModelComparisonSimulator=ComparisonSimulator,
+            ),
+            approximators=SimpleNamespace(
+                ModelComparisonApproximator=lambda **kwargs: kwargs,
+            ),
+            networks=SimpleNamespace(
+                MLP=lambda **kwargs: ("mlp", kwargs),
+            ),
+        )
+        models = [StoryModel("first"), StoryModel("second")]
+        summaries = {"mentions": object(), "story_mask": object()}
+
+        with patch.object(model_comparison, "bf", fake_bf):
+            approximator, _ = model_comparison.make_model_comparison(
+                models,
+                summaries,
+                seed=3,
+                context={"n_days": 4},
+            )
+
+        self.assertEqual(
+            approximator["summary_network"],
+            "story_encoder",
+        )
+        self.assertEqual(approximator["adapter"], "story_adapter")
+        self.assertEqual(
+            approximator["standardize"],
+            "summary_variables",
+        )
 
 
 if __name__ == "__main__":

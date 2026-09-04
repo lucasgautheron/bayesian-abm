@@ -1,4 +1,4 @@
-"""Simulate summary statistics and compare them with observed contact data.
+"""Simulate summary statistics and compare them with a selected dataset.
 
 Example:
     python scripts/simulate.py reputation_conversation
@@ -24,12 +24,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from base.model import Model
-from base.summaries import compute_summaries, make_summaries
-from models import MODEL_REGISTRY
-from scripts.inference import (
-    DEFAULT_DATA,
-    load_contacts,
-)
+from base.observations import load_observations
+from models import resolve_model
 
 
 DEFAULT_RUNS = 100
@@ -95,8 +91,16 @@ def observed_summary_statistics(
     return statistics
 
 
-def _plot_limits(values: ArrayLike, observed: float) -> tuple[float, float]:
-    combined = np.append(np.asarray(values, dtype=np.float64), observed)
+def _plot_limits(
+    values: ArrayLike,
+    observed: ArrayLike,
+) -> tuple[float, float]:
+    combined = np.concatenate(
+        (
+            np.asarray(values, dtype=np.float64).reshape(-1),
+            np.asarray(observed, dtype=np.float64).reshape(-1),
+        )
+    )
     lower = float(combined.min())
     upper = float(combined.max())
     padding = (upper - lower) * 0.05
@@ -107,15 +111,25 @@ def _plot_limits(values: ArrayLike, observed: float) -> tuple[float, float]:
 
 def plot_summary_pairplot(
     frame: pd.DataFrame,
-    observed: Mapping[str, float],
+    observed: Mapping[str, float] | pd.DataFrame,
 ) -> Figure:
-    """Plot simulated summary densities and observed values."""
+    """Plot simulated summaries against one or more observations."""
 
     if frame.empty or len(frame.columns) == 0:
         raise ValueError("at least one simulated summary is required")
     names = list(frame.columns)
-    if set(observed) != set(names):
+    observed_frame = (
+        pd.DataFrame([observed])
+        if isinstance(observed, Mapping)
+        else observed
+    )
+    if observed_frame.empty:
+        raise ValueError("at least one observed summary is required")
+    if set(observed_frame.columns) != set(names):
         raise ValueError("observed and simulated summaries must match")
+    observed_frame = observed_frame[names]
+    if not np.all(np.isfinite(observed_frame.to_numpy())):
+        raise ValueError("observed summaries must be finite")
 
     count = len(names)
     figure, axes = plt.subplots(
@@ -125,8 +139,10 @@ def plot_summary_pairplot(
         squeeze=False,
     )
     limits = {
-        name: _plot_limits(frame[name], observed[name]) for name in names
+        name: _plot_limits(frame[name], observed_frame[name])
+        for name in names
     }
+    single_observation = len(observed_frame) == 1
 
     for row, y_name in enumerate(names):
         for column, x_name in enumerate(names):
@@ -143,23 +159,33 @@ def plot_summary_pairplot(
                     linewidth=1.5,
                     warn_singular=False,
                 )
-                axis.axvline(
-                    observed[x_name],
-                    color="tab:red",
-                    linestyle=":",
-                    linewidth=1,
-                )
-                axis.scatter(
-                    observed[x_name],
-                    0,
-                    marker="*",
-                    s=140,
-                    color="tab:red",
-                    edgecolor="white",
-                    linewidth=0.7,
-                    zorder=3,
-                    clip_on=False,
-                )
+                if single_observation:
+                    observed_value = observed_frame[x_name].iloc[0]
+                    axis.axvline(
+                        observed_value,
+                        color="tab:red",
+                        linestyle=":",
+                        linewidth=1,
+                    )
+                    axis.scatter(
+                        observed_value,
+                        0,
+                        marker="*",
+                        s=140,
+                        color="tab:red",
+                        edgecolor="white",
+                        linewidth=0.7,
+                        zorder=3,
+                        clip_on=False,
+                    )
+                else:
+                    sns.kdeplot(
+                        x=observed_frame[x_name],
+                        ax=axis,
+                        color="tab:red",
+                        linewidth=1.3,
+                        warn_singular=False,
+                    )
             else:
                 y_values = frame[y_name].to_numpy()
                 sns.kdeplot(
@@ -172,16 +198,27 @@ def plot_summary_pairplot(
                     linewidths=1.2,
                     warn_singular=False,
                 )
-                axis.scatter(
-                    observed[x_name],
-                    observed[y_name],
-                    marker="*",
-                    s=170,
-                    color="tab:red",
-                    edgecolor="white",
-                    linewidth=0.7,
-                    zorder=3,
-                )
+                if single_observation:
+                    axis.scatter(
+                        observed_frame[x_name],
+                        observed_frame[y_name],
+                        marker="*",
+                        s=170,
+                        color="tab:red",
+                        edgecolor="white",
+                        linewidth=0.7,
+                        zorder=3,
+                    )
+                else:
+                    axis.scatter(
+                        observed_frame[x_name],
+                        observed_frame[y_name],
+                        s=8,
+                        color="tab:red",
+                        alpha=0.12,
+                        linewidth=0,
+                        rasterized=True,
+                    )
                 axis.set_ylim(limits[y_name])
 
             axis.set_xlim(limits[x_name])
@@ -195,7 +232,7 @@ def plot_summary_pairplot(
                 axis.tick_params(labelleft=False)
 
     figure.suptitle(
-        "Prior-predictive summary statistics (observed data: red stars)"
+        "Prior-predictive summary statistics (observed data: red)"
     )
     figure.tight_layout()
     return figure
@@ -204,7 +241,6 @@ def plot_summary_pairplot(
 def run_simulations(
     model_name: str,
     *,
-    data_path: Path = DEFAULT_DATA,
     output_path: Path | None = None,
     runs: int = DEFAULT_RUNS,
     seed: int = 42,
@@ -214,17 +250,10 @@ def run_simulations(
 
     if runs < 2:
         raise ValueError("runs must be at least 2 to estimate densities")
-    try:
-        model: Model = MODEL_REGISTRY[model_name]()
-    except KeyError as exc:
-        choices = ", ".join(sorted(MODEL_REGISTRY))
-        raise ValueError(
-            f"unknown model {model_name!r}; available models: {choices}"
-        ) from exc
-
-    contacts, n_agents, n_steps = load_contacts(data_path)
-    context = {"n_agents": n_agents, "n_steps": n_steps}
-    summaries = make_summaries(**context)
+    model: Model = resolve_model(model_name)
+    observations = load_observations(model.dataset)
+    context = observations.context
+    summaries = observations.summaries
     from tqdm.auto import tqdm
 
     with tqdm(total=runs, desc="Simulating", unit="run") as progress:
@@ -241,13 +270,16 @@ def run_simulations(
         runs=runs,
         vector_moments=vector_moments,
     )
-    observed = observed_summary_statistics(
-        compute_summaries(
-            contacts,
-            summaries,
-        ),
+    observed_frame = summary_frame(
+        observations.conditions,
+        runs=observations.count,
         vector_moments=vector_moments,
     )
+    observed: Mapping[str, float] | pd.DataFrame
+    if observations.count == 1:
+        observed = observed_frame.iloc[0].to_dict()
+    else:
+        observed = observed_frame
     figure = plot_summary_pairplot(frame, observed)
 
     if output_path is not None:
@@ -259,16 +291,13 @@ def run_simulations(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run prior-predictive contact simulations and save a pair plot "
+            "Run prior-predictive simulations and save a pair plot "
             "of their summary statistics."
         )
     )
-    parser.add_argument("model", choices=sorted(MODEL_REGISTRY))
     parser.add_argument(
-        "--data",
-        type=Path,
-        default=DEFAULT_DATA,
-        help="observed contacts parquet file",
+        "model",
+        help="registered model name (selects observed data automatically)",
     )
     parser.add_argument(
         "--output",
@@ -295,7 +324,6 @@ def main() -> None:
     output = args.output or Path(f"simulations_{args.model}.png")
     run_simulations(
         args.model,
-        data_path=args.data,
         output_path=output,
         runs=args.runs,
         seed=args.seed,

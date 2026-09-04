@@ -5,8 +5,8 @@ description: Plans, adds, and registers contact simulation models from probabili
 
 # Add a new model
 
-Follow the interfaces in `base/model.py` and the concrete example in
-`models/reputation.py`.
+Follow the interfaces in `base/model.py` and the contact-model example in
+`models/contacts/reputation.py`.
 
 ## Required specification and response
 
@@ -28,8 +28,11 @@ Follow the interfaces in `base/model.py` and the concrete example in
 
 ## Requirements
 
-1. Add the implementation in a focused `models/<model_name>.py` module.
-2. Subclass `base.model.Model`.
+1. Add the implementation in the matching dataset package, such as
+   `models/contacts/<model_name>.py` or
+   `models/stories/<model_name>.py`.
+2. Subclass the dataset-specific base (`models.contacts.ContactModel` or
+   `models.stories.StoryModel`).
 3. Give the class a unique, stable `name`.
 4. Set `inference_variables` to the prior variables inferred by BayesFlow. Use
    `None` only when every free prior variable is an inference target.
@@ -44,14 +47,15 @@ Follow the interfaces in `base/model.py` and the concrete example in
    `base.model.INTERVAL_SECONDS`.
 8. Validate required context and reject invalid values with clear exceptions.
 9. Export the model class from its module with `__all__`.
-10. Register the class in `models/__init__.py`. Import it, add it to
-    `MODEL_CLASSES`, and expose it by its stable `name` in `MODEL_REGISTRY`:
+10. Register the class in its dataset package's `__init__.py`. Import it, add
+    it to `MODEL_CLASSES`, and expose it by its stable `name` in
+    `MODEL_REGISTRY`:
 
 ```python
-from base.model import Model
+from models.contacts import ContactModel
 from .new_model import NewModel
 
-MODEL_CLASSES: tuple[type[Model], ...] = (
+MODEL_CLASSES: tuple[type[ContactModel], ...] = (
     NewModel,
 )
 MODEL_REGISTRY = {model.name: model for model in MODEL_CLASSES}
@@ -65,7 +69,8 @@ class and registry through `__all__`.
 
 ## Integration
 
-- Import `MODEL_REGISTRY` from `models` wherever a CLI resolves a model.
+- Resolve the dataset registry with `models.model_registry`; never mix model
+  families from different datasets.
 - Do not maintain separate registries in individual scripts.
 - Keep model-specific simulation logic out of the scripts.
 

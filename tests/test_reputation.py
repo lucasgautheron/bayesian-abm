@@ -13,9 +13,9 @@ import numpy as np
 sys.modules.setdefault("pymc", ModuleType("pymc"))
 sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
-from base.abm import validate_contacts
+from base.model import validate_contacts
 from models import MODEL_CLASSES, MODEL_REGISTRY, ReputationConversationModel
-from models.reputation import (
+from models.contacts.reputation import (
     duration_in_steps,
     partner_probabilities,
     per_step_probability,
@@ -65,7 +65,6 @@ class FakePyMC:
 PARAMETERS = {
     "p_minute": np.asarray(0.8),
     "mean_duration_minutes": np.asarray(0.5),
-    "duration_shape": np.asarray(2.0),
     "reputation": np.asarray([-1.0, 0.0, 1.0, 2.0, 0.5, -0.5]),
 }
 
@@ -81,7 +80,7 @@ class PriorAndHelperTests(unittest.TestCase):
     def test_prior_and_inference_variables(self) -> None:
         model = ReputationConversationModel()
 
-        with patch("models.reputation.pm", FakePyMC):
+        with patch("models.contacts.reputation.pm", FakePyMC):
             prior = model.build_prior(n_agents=6, n_steps=20)
 
         names = [name for _, name, _ in prior.variables]
@@ -90,7 +89,6 @@ class PriorAndHelperTests(unittest.TestCase):
             [
                 "p_minute",
                 "mean_duration_minutes",
-                "duration_shape",
                 "reputation_sigma",
                 "reputation",
             ],
@@ -121,18 +119,16 @@ class PriorAndHelperTests(unittest.TestCase):
         np.testing.assert_allclose(probabilities, expected)
         self.assertGreater(probabilities[1], probabilities[0])
 
-    def test_duration_uses_mean_shape_parameterization(self) -> None:
+    def test_duration_uses_exponential_mean_parameterization(self) -> None:
         class FakeRng:
-            def gamma(self, shape: float, *, scale: float) -> float:
-                self.shape = shape
+            def exponential(self, *, scale: float) -> float:
                 self.scale = scale
                 return 1.1
 
         rng = FakeRng()
-        steps = duration_in_steps(rng, mean_minutes=6.0, shape=3.0)
+        steps = duration_in_steps(rng, mean_minutes=6.0)
 
-        self.assertEqual(rng.shape, 3.0)
-        self.assertEqual(rng.scale, 2.0)
+        self.assertEqual(rng.scale, 6.0)
         self.assertEqual(steps, 4)
 
 

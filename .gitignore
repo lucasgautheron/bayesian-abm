@@ -32,6 +32,7 @@ MANIFEST
 !.env.example
 .envrc
 .venv/
+.venv*/
 env/
 venv/
 ENV/
@@ -67,7 +68,8 @@ ipython_config.py
 
 # Generated datasets and downloaded MemeTracker source data
 data/**/*.parquet
-data/memes/*.txt.gz
+data/stories/*.txt.gz
+data/contacts/original.dat
 
 # Generated plots and diagnostics
 /simulations_*.png

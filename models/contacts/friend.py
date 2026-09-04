@@ -9,7 +9,8 @@ import numpy as np
 import pymc as pm
 from numpy.typing import ArrayLike, NDArray
 
-from base.model import INTERVAL_SECONDS, Model
+from base.model import INTERVAL_SECONDS
+from .base import ContactModel
 from .reputation import (
     duration_in_steps,
     partner_probabilities,
@@ -63,6 +64,8 @@ def draw_friend_network(
     ):
         raise ValueError("n_agents must be an integer of at least 2")
     n_agents = int(n_agents)
+    if not np.isfinite(phi) or phi <= 0:
+        raise ValueError("phi must be finite and positive")
     if not np.isfinite(block_strength) or not 0 <= block_strength <= 1:
         raise ValueError("block_strength must be between 0 and 1")
 
@@ -126,7 +129,7 @@ def _scalar_parameter(
     return result
 
 
-class FriendModel(Model):
+class FriendModel(ContactModel):
     """Agents prefer friends sometimes and reputable partners otherwise."""
 
     name = "friend_conversation"

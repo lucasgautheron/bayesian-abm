@@ -1,4 +1,4 @@
-"""Train a BayesFlow posterior and plot it for an observed contact data set.
+"""Train a BayesFlow posterior for a selected observed dataset.
 
 Example:
     python scripts/inference.py reputation_conversation
@@ -15,56 +15,15 @@ from typing import Any
 import bayesflow as bf
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from base.model import ContactData, Model
-from base.summaries import (
-    INTERVAL_SECONDS,
-    Summaries,
-    compute_summaries,
-    make_summaries,
-)
-from models import MODEL_REGISTRY
-
-
-DEFAULT_DATA = ROOT / "data" / "contacts" / "contacts.parquet"
-
-
-def load_contacts(path: Path) -> tuple[ContactData, int, int]:
-    """Load contacts and normalize IDs and times to the simulator convention."""
-
-    frame = pd.read_parquet(path, columns=["t", "i", "j"])
-    if frame.empty:
-        raise ValueError("the observed contact data is empty")
-
-    times = frame["t"].to_numpy()
-    if np.any(times % INTERVAL_SECONDS):
-        raise ValueError("contact times must fall on 20-second boundaries")
-
-    agent_ids = np.unique(
-        np.concatenate(
-            (frame["i"].to_numpy(), frame["j"].to_numpy())
-        )
-    )
-    start = int(times.min())
-    normalized_times = times - start + INTERVAL_SECONDS
-    contacts = {
-        "t": normalized_times.astype(np.int32),
-        "i": np.searchsorted(
-            agent_ids,
-            frame["i"].to_numpy(),
-        ).astype(np.int32),
-        "j": np.searchsorted(
-            agent_ids,
-            frame["j"].to_numpy(),
-        ).astype(np.int32),
-    }
-    n_steps = int(normalized_times.max() // INTERVAL_SECONDS)
-    return contacts, len(agent_ids), n_steps
+from base.model import Model
+from base.observations import load_observations
+from base.summaries import Summaries
+from models import resolve_model
 
 
 def make_workflow(
@@ -74,7 +33,7 @@ def make_workflow(
     seed: int,
     context: Mapping[str, int],
 ) -> bf.BasicWorkflow:
-    """Build a BayesFlow workflow conditioned on the expert summaries."""
+    """Build a BayesFlow workflow with direct or learned summaries."""
 
     simulator = model.to_bayesflow_simulator(
         summaries,
@@ -84,14 +43,30 @@ def make_workflow(
     adapter = model.make_bayesflow_adapter(
         summaries,
         **context,
-    ).rename("summary_variables", "inference_conditions")
+    )
+    summary_network = model.make_bayesflow_summary_network(**context)
+    workflow_kwargs: dict[str, Any]
+    if summary_network is None:
+        adapter = adapter.rename(
+            "summary_variables",
+            "inference_conditions",
+        )
+        workflow_kwargs = {"inference_conditions": list(summaries)}
+    else:
+        workflow_kwargs = {
+            "summary_network": summary_network,
+            "summary_variables": [
+                name for name in summaries if name != "story_mask"
+            ],
+        }
+
     return bf.BasicWorkflow(
         simulator=simulator,
         adapter=adapter,
         inference_network=bf.networks.FlowMatching(),
         inference_variables=list(model.inference_variables or ()),
-        inference_conditions=list(summaries),
         standardize="all",
+        **workflow_kwargs,
     )
 
 
@@ -123,10 +98,46 @@ def prepare_posterior_plot_data(
     return prepared, variable_names
 
 
+def sample_observations(
+    workflow: bf.BasicWorkflow,
+    conditions: Mapping[str, np.ndarray],
+    *,
+    num_samples: int,
+    batch_size: int,
+) -> dict[str, np.ndarray]:
+    """Sample posteriors for all observations in bounded condition batches."""
+
+    if batch_size < 1:
+        raise ValueError("observation batch size must be positive")
+    counts = {np.asarray(values).shape[0] for values in conditions.values()}
+    if len(counts) != 1:
+        raise ValueError("condition arrays must share an observation axis")
+    count = counts.pop()
+    if count < 1:
+        raise ValueError("at least one observation is required")
+
+    chunks: dict[str, list[np.ndarray]] = {}
+    for start in range(0, count, batch_size):
+        stop = min(start + batch_size, count)
+        batch = {
+            name: np.asarray(values)[start:stop]
+            for name, values in conditions.items()
+        }
+        sampled = workflow.sample(
+            conditions=batch,
+            num_samples=num_samples,
+        )
+        for name, values in sampled.items():
+            chunks.setdefault(name, []).append(np.asarray(values))
+    return {
+        name: np.concatenate(values, axis=0)
+        for name, values in chunks.items()
+    }
+
+
 def run_inference(
     model_name: str,
     *,
-    data_path: Path = DEFAULT_DATA,
     output_path: Path | None = None,
     epochs: int = 5,
     batches_per_epoch: int = 20,
@@ -135,21 +146,15 @@ def run_inference(
     diagnostic_datasets: int = 50,
     diagnostic_draws: int = 200,
     diagnostics_path: Path | None = None,
+    observation_batch_size: int = 256,
     seed: int = 42,
 ) -> dict[str, Any]:
     """Train, infer, and return posterior and diagnostic plots."""
 
-    try:
-        model = MODEL_REGISTRY[model_name]()
-    except KeyError as exc:
-        choices = ", ".join(sorted(MODEL_REGISTRY))
-        raise ValueError(
-            f"unknown model {model_name!r}; available models: {choices}"
-        ) from exc
-
-    contacts, n_agents, n_steps = load_contacts(data_path)
-    context = {"n_agents": n_agents, "n_steps": n_steps}
-    summaries = make_summaries(**context)
+    model = resolve_model(model_name)
+    observations = load_observations(model.dataset)
+    context = observations.context
+    summaries = observations.summaries
     workflow = make_workflow(
         model,
         summaries,
@@ -162,16 +167,11 @@ def run_inference(
         batch_size=batch_size,
     )
 
-    observed = {
-        name: values[None, ...]
-        for name, values in compute_summaries(
-            contacts,
-            summaries,
-        ).items()
-    }
-    posterior = workflow.sample(
-        conditions=observed,
+    posterior = sample_observations(
+        workflow,
+        observations.conditions,
         num_samples=posterior_draws,
+        batch_size=observation_batch_size,
     )
     variable_keys: Sequence[str] = model.inference_variables or ()
     posterior_for_plot, variable_names = prepare_posterior_plot_data(
@@ -231,16 +231,13 @@ def run_inference(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train BayesFlow on a named contact model and save a posterior "
-            "pair plot."
+            "Train BayesFlow on a dataset-specific model and save a posterior "
+            "pair plot for its first observation."
         )
     )
-    parser.add_argument("model", choices=sorted(MODEL_REGISTRY))
     parser.add_argument(
-        "--data",
-        type=Path,
-        default=DEFAULT_DATA,
-        help="observed contacts parquet file",
+        "model",
+        help="registered model name (selects observed data automatically)",
     )
     parser.add_argument(
         "--output",
@@ -268,6 +265,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="diagnostic output directory",
     )
+    parser.add_argument(
+        "--observation-batch-size",
+        type=int,
+        default=256,
+        help="observed series processed per posterior batch",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--show",
@@ -282,7 +285,6 @@ def main() -> None:
     output = args.output or Path(f"posterior_{args.model}.png")
     run_inference(
         args.model,
-        data_path=args.data,
         output_path=output,
         epochs=args.epochs,
         batches_per_epoch=args.batches_per_epoch,
@@ -291,6 +293,7 @@ def main() -> None:
         diagnostic_datasets=args.diagnostic_datasets,
         diagnostic_draws=args.diagnostic_draws,
         diagnostics_path=args.diagnostics_dir,
+        observation_batch_size=args.observation_batch_size,
         seed=args.seed,
     )
     print(f"Saved posterior pair plot to {output.resolve()}")

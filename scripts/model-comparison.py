@@ -1,4 +1,4 @@
-"""Train a BayesFlow classifier and compare contact models on observed data.
+"""Train a BayesFlow classifier for a selected observed dataset.
 
 Example:
     python scripts/model-comparison.py model_a model_b
@@ -24,27 +24,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from base.model import Model
-from base.summaries import Summaries, compute_summaries, make_summaries
-from models import MODEL_REGISTRY
-from scripts.inference import (
-    DEFAULT_DATA,
-    load_contacts,
-)
+from base.observations import load_observations
+from base.summaries import Summaries
+from models import resolve_model
 
 
 DEFAULT_DIAGNOSTIC_DATASETS = 100
 
 
-def resolve_models(model_names: Sequence[str]) -> tuple[Model, ...]:
+def resolve_models(
+    model_names: Sequence[str],
+) -> tuple[Model, ...]:
     """Instantiate and validate the requested model collection."""
 
-    try:
-        models = [MODEL_REGISTRY[name]() for name in model_names]
-    except KeyError as exc:
-        choices = ", ".join(sorted(MODEL_REGISTRY))
-        raise ValueError(
-            f"unknown model {exc.args[0]!r}; available models: {choices}"
-        ) from exc
+    models = [resolve_model(name) for name in model_names]
     return Model.validate_collection(models)
 
 
@@ -76,6 +69,7 @@ def make_model_comparison(
         use_mixed_batches=True,
         key_conflicts="error",
     )
+    summary_network = models[0].make_bayesflow_summary_network(**context)
     approximator = bf.approximators.ModelComparisonApproximator(
         num_models=len(models),
         classifier_network=bf.networks.MLP(
@@ -83,8 +77,13 @@ def make_model_comparison(
             activation="silu",
             dropout=None,
         ),
-        adapter=Model.make_bayesflow_model_comparison_adapter(summaries),
-        standardize="inference_conditions",
+        summary_network=summary_network,
+        adapter=models[0].make_bayesflow_model_comparison_adapter(summaries),
+        standardize=(
+            "summary_variables"
+            if summary_network is not None
+            else "inference_conditions"
+        ),
     )
     return approximator, simulator
 
@@ -96,9 +95,13 @@ def extract_probabilities(
     """Validate and return one probability per compared model."""
 
     probabilities = np.asarray(prediction, dtype=np.float64)
-    if probabilities.shape == (1, len(model_names)):
-        probabilities = probabilities[0]
-    if probabilities.shape != (len(model_names),):
+    if probabilities.ndim == 1:
+        probabilities = probabilities[None, :]
+    if (
+        probabilities.ndim != 2
+        or probabilities.shape[1] != len(model_names)
+        or probabilities.shape[0] < 1
+    ):
         raise ValueError(
             "predicted model probabilities have an unexpected shape "
             f"{probabilities.shape}"
@@ -106,17 +109,52 @@ def extract_probabilities(
     if (
         not np.all(np.isfinite(probabilities))
         or np.any(probabilities < 0)
-        or not np.isclose(probabilities.sum(), 1.0)
+        or not np.allclose(probabilities.sum(axis=1), 1.0)
     ):
         raise ValueError("predicted model probabilities are invalid")
-    return probabilities
+    return probabilities.mean(axis=0)
+
+
+def predict_observations(
+    approximator: bf.approximators.ModelComparisonApproximator,
+    conditions: Mapping[str, np.ndarray],
+    *,
+    batch_size: int,
+) -> NDArray[np.float64]:
+    """Predict every observation in bounded condition batches."""
+
+    if batch_size < 1:
+        raise ValueError("observation batch size must be positive")
+    counts = {np.asarray(values).shape[0] for values in conditions.values()}
+    if len(counts) != 1:
+        raise ValueError("condition arrays must share an observation axis")
+    count = counts.pop()
+    if count < 1:
+        raise ValueError("at least one observation is required")
+
+    predictions = []
+    for start in range(0, count, batch_size):
+        stop = min(start + batch_size, count)
+        batch = {
+            name: np.asarray(values)[start:stop]
+            for name, values in conditions.items()
+        }
+        predictions.append(
+            np.asarray(
+                approximator.predict(conditions=batch, probs=True),
+                dtype=np.float64,
+            )
+        )
+    return np.concatenate(predictions, axis=0)
 
 
 def plot_model_probabilities(
     probabilities: ArrayLike,
     model_names: Sequence[str],
+    *,
+    dataset: str,
 ) -> Figure:
-    """Plot posterior probabilities for the observed contact data."""
+    """Plot mean posterior probabilities for the observed dataset."""
 
     probabilities = extract_probabilities(probabilities, model_names)
     width = max(6.0, 1.6 * len(model_names))
@@ -129,7 +167,9 @@ def plot_model_probabilities(
     )
     axis.set_ylim(0.0, 1.05)
     axis.set_ylabel("Posterior model probability")
-    axis.set_title("BayesFlow model comparison for observed contacts")
+    axis.set_title(
+        f"BayesFlow model comparison for observed {dataset}"
+    )
     axis.tick_params(axis="x", rotation=20)
     figure.tight_layout()
     return figure
@@ -138,16 +178,16 @@ def plot_model_probabilities(
 def run_model_comparison(
     model_names: Sequence[str],
     *,
-    data_path: Path = DEFAULT_DATA,
     output_path: Path | None = None,
     epochs: int = 5,
     batches_per_epoch: int = 20,
     batch_size: int = 8,
     diagnostic_datasets: int = DEFAULT_DIAGNOSTIC_DATASETS,
     diagnostics_path: Path | None = None,
+    observation_batch_size: int = 1_024,
     seed: int = 42,
 ) -> tuple[dict[str, Any], dict[str, float]]:
-    """Train a classifier and compare models on observed contact data."""
+    """Train a classifier and compare models on an observed dataset."""
 
     if epochs < 1 or batches_per_epoch < 1 or batch_size < 1:
         raise ValueError("training sizes must be positive")
@@ -155,10 +195,11 @@ def run_model_comparison(
         raise ValueError("diagnostic_datasets must be non-negative")
 
     models = resolve_models(model_names)
+    dataset = models[0].dataset
     names = [model.name for model in models]
-    contacts, n_agents, n_steps = load_contacts(data_path)
-    context = {"n_agents": n_agents, "n_steps": n_steps}
-    summaries = make_summaries(**context)
+    observations = load_observations(dataset)
+    context = observations.context
+    summaries = observations.summaries
     approximator, simulator = make_model_comparison(
         models,
         summaries,
@@ -172,16 +213,17 @@ def run_model_comparison(
         simulator=simulator,
     )
 
-    observed = {
-        name: values[None, ...]
-        for name, values in compute_summaries(
-            contacts,
-            summaries,
-        ).items()
-    }
-    prediction = approximator.predict(conditions=observed, probs=True)
+    prediction = predict_observations(
+        approximator,
+        observations.conditions,
+        batch_size=observation_batch_size,
+    )
     probabilities = extract_probabilities(prediction, names)
-    posterior = plot_model_probabilities(probabilities, names)
+    posterior = plot_model_probabilities(
+        probabilities,
+        names,
+        dataset=dataset,
+    )
     plots: dict[str, Any] = {"posterior": posterior}
 
     if diagnostic_datasets > 0:
@@ -231,21 +273,17 @@ def run_model_comparison(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train a BayesFlow classifier and compare contact models on "
-            "observed data."
+            "Train a BayesFlow classifier and compare models on a selected "
+            "observed dataset."
         )
     )
     parser.add_argument(
         "models",
         nargs="+",
-        choices=sorted(MODEL_REGISTRY),
-        help="two or more distinct models to compare",
-    )
-    parser.add_argument(
-        "--data",
-        type=Path,
-        default=DEFAULT_DATA,
-        help="observed contacts parquet file",
+        help=(
+            "two or more models to compare "
+            "(their shared observed data is selected automatically)"
+        ),
     )
     parser.add_argument(
         "--output",
@@ -266,6 +304,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="diagnostic output directory",
     )
+    parser.add_argument(
+        "--observation-batch-size",
+        type=int,
+        default=1_024,
+        help="observed series processed per classifier batch",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--show",
@@ -277,16 +321,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    output = args.output or Path("model_comparison.png")
+    output = args.output or Path(
+        f"model_comparison_{'_vs_'.join(args.models)}.png"
+    )
     plots, probabilities = run_model_comparison(
         args.models,
-        data_path=args.data,
         output_path=output,
         epochs=args.epochs,
         batches_per_epoch=args.batches_per_epoch,
         batch_size=args.batch_size,
         diagnostic_datasets=args.diagnostic_datasets,
         diagnostics_path=args.diagnostics_dir,
+        observation_batch_size=args.observation_batch_size,
         seed=args.seed,
     )
     print(f"Saved model comparison to {output.resolve()}")

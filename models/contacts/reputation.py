@@ -9,7 +9,8 @@ import numpy as np
 import pymc as pm
 from numpy.typing import ArrayLike, NDArray
 
-from base.model import INTERVAL_SECONDS, Model
+from base.model import INTERVAL_SECONDS
+from .base import ContactModel
 
 
 STEPS_PER_MINUTE = 60 // INTERVAL_SECONDS
@@ -42,7 +43,7 @@ def duration_in_steps(
     return max(1, int(np.ceil(duration_minutes * STEPS_PER_MINUTE)))
 
 
-class ReputationConversationModel(Model):
+class ReputationConversationModel(ContactModel):
     """Agents start conversations and prefer reputable available partners."""
 
     name = "reputation_conversation"

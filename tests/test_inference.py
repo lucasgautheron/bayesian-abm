@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -10,7 +11,40 @@ import numpy as np
 sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 sys.modules.setdefault("pymc", ModuleType("pymc"))
 
-from scripts.inference import prepare_posterior_plot_data
+from scripts.inference import (
+    make_workflow,
+    prepare_posterior_plot_data,
+    sample_observations,
+)
+
+
+class FakeAdapter:
+    def __init__(self) -> None:
+        self.operations: list[tuple[str, str, str]] = []
+
+    def rename(self, source: str, target: str):
+        self.operations.append(("rename", source, target))
+        return self
+
+
+class FakeWorkflowModel:
+    inference_variables = ("theta",)
+
+    def __init__(self, summary_network) -> None:
+        self.summary_network = summary_network
+        self.adapter = FakeAdapter()
+
+    def to_bayesflow_simulator(self, summaries, **kwargs):
+        self.simulator_arguments = (summaries, kwargs)
+        return "simulator"
+
+    def make_bayesflow_adapter(self, summaries, **context):
+        self.adapter_arguments = (summaries, context)
+        return self.adapter
+
+    def make_bayesflow_summary_network(self, **context):
+        self.network_context = context
+        return self.summary_network
 
 
 class PosteriorPlotDataTests(unittest.TestCase):
@@ -34,6 +68,75 @@ class PosteriorPlotDataTests(unittest.TestCase):
     def test_rejects_missing_variable(self) -> None:
         with self.assertRaisesRegex(ValueError, "missing"):
             prepare_posterior_plot_data({}, ["rate"])
+
+    def test_workflow_uses_learned_story_summary_network(self) -> None:
+        model = FakeWorkflowModel(summary_network="story_encoder")
+        fake_bf = SimpleNamespace(
+            BasicWorkflow=lambda **kwargs: kwargs,
+            networks=SimpleNamespace(FlowMatching=lambda: "flow"),
+        )
+
+        with patch("scripts.inference.bf", fake_bf):
+            workflow = make_workflow(
+                model,
+                {"mentions": object(), "story_mask": object()},
+                seed=4,
+                context={"n_days": 3},
+            )
+
+        self.assertEqual(workflow["summary_network"], "story_encoder")
+        self.assertEqual(workflow["summary_variables"], ["mentions"])
+        self.assertNotIn("inference_conditions", workflow)
+        self.assertEqual(model.adapter.operations, [])
+
+    def test_workflow_preserves_direct_contact_conditions(self) -> None:
+        model = FakeWorkflowModel(summary_network=None)
+        fake_bf = SimpleNamespace(
+            BasicWorkflow=lambda **kwargs: kwargs,
+            networks=SimpleNamespace(FlowMatching=lambda: "flow"),
+        )
+
+        with patch("scripts.inference.bf", fake_bf):
+            workflow = make_workflow(
+                model,
+                {"contacts": object()},
+                seed=4,
+                context={"n_agents": 3, "n_steps": 2},
+            )
+
+        self.assertEqual(workflow["inference_conditions"], ["contacts"])
+        self.assertNotIn("summary_network", workflow)
+        self.assertEqual(
+            model.adapter.operations,
+            [("rename", "summary_variables", "inference_conditions")],
+        )
+
+    def test_samples_all_observations_in_batches(self) -> None:
+        class Workflow:
+            def __init__(self) -> None:
+                self.batch_sizes: list[int] = []
+
+            def sample(self, *, conditions, num_samples):
+                values = conditions["mentions"]
+                self.batch_sizes.append(len(values))
+                return {
+                    "rate": np.repeat(
+                        values[:, :1],
+                        num_samples,
+                        axis=1,
+                    )
+                }
+
+        workflow = Workflow()
+        posterior = sample_observations(
+            workflow,
+            {"mentions": np.arange(10).reshape(5, 2)},
+            num_samples=3,
+            batch_size=2,
+        )
+
+        self.assertEqual(workflow.batch_sizes, [2, 2, 1])
+        self.assertEqual(posterior["rate"].shape, (5, 3))
 
 
 if __name__ == "__main__":
