@@ -1,7 +1,7 @@
 # Contact data
 
 `contacts.parquet` is an analysis-ready conversion of `original.dat`. Each row
-represents one pairwise contact active during a 20-second interval.
+represents one pair observed during a one-minute interval.
 
 ## Schema
 
@@ -11,12 +11,15 @@ represents one pairwise contact active during a 20-second interval.
 | `i` | int32 | Anonymous ID of the first person |
 | `j` | int32 | Anonymous ID of the second person |
 
-The interval represented by a row is `(t - 20, t]`. Pair orientation is
-preserved from the source; `i` and `j` are not reordered.
+The interval represented by a row is `(t - 60, t]`. A pair is included when it
+appears in at least one of the source's three 20-second intervals in that
+minute. Repeated and reverse-oriented observations of the same pair in a
+minute are collapsed to one row, while the first observed orientation is
+preserved.
 
-The file contains 45,776 rows involving 402 people from the first observation
+The file contains 25,057 rows involving 402 people from the first observation
 day. Timestamps range from 32,520 through 77,580 seconds and are aligned to
-20-second boundaries. The overnight zero-contact period and following day are
+one-minute boundaries. The overnight zero-contact period and following day are
 excluded so simulations and inference only cover the active first-day window.
 
 Load it as a pandas DataFrame with:
@@ -32,7 +35,7 @@ contacts = pd.read_parquet("data/contacts/contacts.parquet")
 Requires Python and PyArrow:
 
 ```sh
-python3 scripts/convert_contacts.py \
+python3 data/convert_contacts.py \
   data/contacts/original.dat \
   data/contacts/contacts.parquet \
   --first-day-only
