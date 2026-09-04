@@ -69,7 +69,6 @@ def make_model_comparison(
         use_mixed_batches=True,
         key_conflicts="error",
     )
-    summary_network = models[0].make_bayesflow_summary_network(**context)
     approximator = bf.approximators.ModelComparisonApproximator(
         num_models=len(models),
         classifier_network=bf.networks.MLP(
@@ -77,13 +76,8 @@ def make_model_comparison(
             activation="silu",
             dropout=None,
         ),
-        summary_network=summary_network,
         adapter=models[0].make_bayesflow_model_comparison_adapter(summaries),
-        standardize=(
-            "summary_variables"
-            if summary_network is not None
-            else "inference_conditions"
-        ),
+        standardize="inference_conditions",
     )
     return approximator, simulator
 

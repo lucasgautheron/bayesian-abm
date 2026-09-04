@@ -14,14 +14,14 @@ interfaces and examples in `base/summaries.py`.
 2. Accept contact mappings with exactly the one-dimensional `t`, `i`, and `j`
    arrays. Treat `t` as interval-end times measured in
    `INTERVAL_SECONDS`.
-3. Return a finite numeric scalar or array with a fixed shape for a given
-   simulation context. `compute_summaries` converts results to `float32` and
-   ensures they are at least one-dimensional.
+3. Return exactly one finite numeric scalar. The tutorial deliberately uses
+   direct scalar conditioning rather than vectors or learned summary networks.
+   `compute_summaries` converts results to one-element `float32` arrays.
 4. Use a factory returning `SummaryFunction` when output shape or validation
    depends on context such as `n_agents`, `n_steps`, agent IDs, or time bounds.
 5. Make statistics invariant to contact-row order. Statistics describing an
-   agent distribution must also be invariant to agent IDs; use
-   `sorted_summary` for fixed-size one-dimensional per-agent values.
+   agent distribution must also be invariant to agent IDs by reducing the
+   distribution to a scalar.
 6. Include empty intervals and isolated agents when they are part of the
    statistic's domain. Do not infer the required output shape only from
    observed contacts.
@@ -37,10 +37,7 @@ interfaces and examples in `base/summaries.py`.
 
 ## Pair-plot behavior
 
-`scripts/simulate.py` plots scalar statistics directly and represents
-non-scalar statistics by their mean. With `--vector-moments`, it also includes
-their population standard deviation. Preserve this behavior when changing
-summary output shapes.
+`scripts/simulate.py` plots every scalar statistic directly.
 
 ## Verification
 

@@ -31,18 +31,18 @@ from models import resolve_model
 DEFAULT_RUNS = 100
 
 
-def _reshape_runs(
+def _scalar_runs(
     values: ArrayLike,
     runs: int,
 ) -> NDArray[np.float64]:
-    """Return one flattened summary vector per simulation run."""
+    """Return one scalar summary per simulation run."""
 
     array = np.asarray(values, dtype=np.float64)
     if array.ndim == 0 or array.shape[0] != runs:
         raise ValueError("simulated summaries must have one value per run")
     flattened = array.reshape(runs, -1)
-    if flattened.shape[1] == 0:
-        raise ValueError("simulated summaries must not be empty")
+    if flattened.shape[1] != 1:
+        raise ValueError("simulated summary statistics must be scalar")
     if not np.all(np.isfinite(flattened)):
         raise ValueError("simulated summaries must be finite")
     return flattened
@@ -52,42 +52,29 @@ def summary_frame(
     simulated: Mapping[str, ArrayLike],
     *,
     runs: int,
-    vector_moments: bool = False,
 ) -> pd.DataFrame:
-    """Represent scalars and vector means, with optional standard deviations."""
+    """Represent scalar summaries as pair-plot columns."""
 
-    columns: dict[str, NDArray[np.float64]] = {}
-    for name, values in simulated.items():
-        flattened = _reshape_runs(values, runs)
-        if flattened.shape[1] == 1:
-            columns[name] = flattened[:, 0]
-        else:
-            columns[f"{name}_mean"] = flattened.mean(axis=1)
-        if flattened.shape[1] > 1 and vector_moments:
-            columns[f"{name}_stdev"] = flattened.std(axis=1)
+    columns = {
+        name: _scalar_runs(values, runs)[:, 0]
+        for name, values in simulated.items()
+    }
     return pd.DataFrame(columns)
 
 
 def observed_summary_statistics(
     observed: Mapping[str, ArrayLike],
-    *,
-    vector_moments: bool = False,
 ) -> dict[str, float]:
-    """Match observed scalar/vector summaries to pair-plot columns."""
+    """Return validated observed scalar summaries."""
 
     statistics: dict[str, float] = {}
     for name, value in observed.items():
         flattened = np.asarray(value, dtype=np.float64).reshape(-1)
-        if flattened.size == 0:
-            raise ValueError("observed summaries must not be empty")
+        if flattened.size != 1:
+            raise ValueError("observed summary statistics must be scalar")
         if not np.all(np.isfinite(flattened)):
             raise ValueError("observed summaries must be finite")
-        if flattened.size == 1:
-            statistics[name] = float(flattened[0])
-        else:
-            statistics[f"{name}_mean"] = float(flattened.mean())
-        if flattened.size > 1 and vector_moments:
-            statistics[f"{name}_stdev"] = float(flattened.std())
+        statistics[name] = float(flattened[0])
     return statistics
 
 
@@ -244,7 +231,6 @@ def run_simulations(
     output_path: Path | None = None,
     runs: int = DEFAULT_RUNS,
     seed: int = 42,
-    vector_moments: bool = False,
 ) -> Figure:
     """Run a model repeatedly and return its summary-statistic pair plot."""
 
@@ -268,12 +254,10 @@ def run_simulations(
     frame = summary_frame(
         simulated,
         runs=runs,
-        vector_moments=vector_moments,
     )
     observed_frame = summary_frame(
         observations.conditions,
         runs=observations.count,
-        vector_moments=vector_moments,
     )
     observed: Mapping[str, float] | pd.DataFrame
     if observations.count == 1:
@@ -307,11 +291,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runs", type=int, default=DEFAULT_RUNS)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--vector-moments",
-        action="store_true",
-        help="include vector summary means and standard deviations",
-    )
-    parser.add_argument(
         "--show",
         action="store_true",
         help="also open the pair plot in a window",
@@ -327,7 +306,6 @@ def main() -> None:
         output_path=output,
         runs=args.runs,
         seed=args.seed,
-        vector_moments=args.vector_moments,
     )
     print(f"Saved simulation pair plot to {output.resolve()}")
     if args.show:

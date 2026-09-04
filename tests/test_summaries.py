@@ -11,13 +11,14 @@ sys.modules.setdefault("pymc", ModuleType("pymc"))
 
 from base.summaries import (
     SUMMARY_BUILDERS,
-    contacts_per_bin,
-    cumulative_contact_times,
+    contact_time_coefficient_of_variation,
     cumulative_network_assortativity,
     cumulative_network_clustering,
     cumulative_network_connectivity,
+    lag_one_contact_autocorrelation,
     make_summaries,
-    sorted_summary,
+    mean_contacts_per_bin,
+    stdev_contacts_per_bin,
 )
 
 
@@ -45,30 +46,48 @@ class TemporalSummaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_summaries(n_agents=4, n_steps=0)
 
-    def test_counts_contacts_and_preserves_empty_bins(self) -> None:
-        summary = contacts_per_bin(start=20, end=80)
+    def test_scalar_activity_summaries_include_empty_bins(self) -> None:
+        data = contacts([20, 20, 60], [0, 1, 0], [1, 2, 2])
 
-        result = summary(contacts([20, 20, 60], [0, 1, 0], [1, 2, 2]))
+        mean = mean_contacts_per_bin(start=20, end=80)(data)
+        stdev = stdev_contacts_per_bin(start=20, end=80)(data)
+        autocorrelation = lag_one_contact_autocorrelation(
+            start=20,
+            end=80,
+        )(data)
 
-        np.testing.assert_array_equal(result, [2, 0, 1, 0])
+        self.assertAlmostEqual(mean, np.mean([2, 0, 1, 0]))
+        self.assertAlmostEqual(stdev, np.std([2, 0, 1, 0]))
+        self.assertAlmostEqual(
+            autocorrelation,
+            np.corrcoef([2, 0, 1], [0, 1, 0])[0, 1],
+        )
 
-    def test_empty_contacts_produce_all_zeroes(self) -> None:
-        summary = contacts_per_bin(start=20, end=60)
+    def test_empty_contacts_produce_zero_activity_summaries(self) -> None:
+        empty = contacts([], [], [])
 
-        result = summary(contacts([], [], []))
-
-        np.testing.assert_array_equal(result, [0, 0, 0])
+        for factory in (
+            mean_contacts_per_bin,
+            stdev_contacts_per_bin,
+            lag_one_contact_autocorrelation,
+        ):
+            self.assertEqual(factory(start=20, end=60)(empty), 0.0)
 
     def test_bounds_must_be_aligned(self) -> None:
-        with self.assertRaises(ValueError):
-            contacts_per_bin(start=10, end=60)
-        with self.assertRaises(ValueError):
-            contacts_per_bin(start=80, end=60)
+        for factory in (
+            mean_contacts_per_bin,
+            stdev_contacts_per_bin,
+            lag_one_contact_autocorrelation,
+        ):
+            with self.assertRaises(ValueError):
+                factory(start=10, end=60)
+            with self.assertRaises(ValueError):
+                factory(start=80, end=60)
 
 
 class AgentDistributionTests(unittest.TestCase):
-    def test_counts_both_endpoints_and_isolated_agents(self) -> None:
-        summary = cumulative_contact_times([10, 20, 30, 40])
+    def test_contact_time_variation_includes_isolated_agents(self) -> None:
+        summary = contact_time_coefficient_of_variation([10, 20, 30, 40])
         data = contacts(
             [20, 20, 40, 60],
             [10, 10, 10, 20],
@@ -77,7 +96,8 @@ class AgentDistributionTests(unittest.TestCase):
 
         result = summary(data)
 
-        np.testing.assert_array_equal(result, [0, 40, 60, 60])
+        totals = np.asarray([60, 60, 40, 0])
+        self.assertAlmostEqual(result, totals.std() / totals.mean())
 
     def test_agent_relabeling_does_not_change_distribution(self) -> None:
         original = contacts(
@@ -98,26 +118,25 @@ class AgentDistributionTests(unittest.TestCase):
             ),
         }
 
-        first = cumulative_contact_times([10, 20, 30, 40])(original)
-        second = cumulative_contact_times([101, 102, 103, 104])(
-            relabeled
-        )
+        first = contact_time_coefficient_of_variation(
+            [10, 20, 30, 40]
+        )(original)
+        second = contact_time_coefficient_of_variation(
+            [101, 102, 103, 104]
+        )(relabeled)
 
-        np.testing.assert_array_equal(first, second)
+        self.assertEqual(first, second)
 
     def test_unknown_agents_are_rejected(self) -> None:
-        summary = cumulative_contact_times([0, 1])
+        summary = contact_time_coefficient_of_variation([0, 1])
 
         with self.assertRaisesRegex(ValueError, "unknown agent"):
             summary(contacts([20], [0], [2]))
 
-    def test_sorted_summary_requires_a_vector(self) -> None:
-        summary = sorted_summary(
-            lambda _: np.asarray([[2, 1], [0, 3]])
-        )
+    def test_empty_contacts_have_zero_contact_time_variation(self) -> None:
+        summary = contact_time_coefficient_of_variation([0, 1])
 
-        with self.assertRaisesRegex(ValueError, "one-dimensional"):
-            summary(contacts([], [], []))
+        self.assertEqual(summary(contacts([], [], [])), 0.0)
 
 
 class NetworkSummaryTests(unittest.TestCase):

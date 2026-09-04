@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from functools import wraps
 from itertools import combinations
 from typing import Any
 
@@ -31,6 +30,8 @@ def compute_summaries(
         )
         for name, function in summaries.items()
     }
+    if any(value.size != 1 for value in result.values()):
+        raise ValueError("summary statistics must be scalar")
     if any(not np.all(np.isfinite(value)) for value in result.values()):
         raise ValueError("summary statistics must be finite")
     return result
@@ -70,27 +71,7 @@ def _cumulative_neighbors(
     return neighbors
 
 
-def sorted_summary(function: SummaryFunction) -> SummaryFunction:
-    """Make a one-dimensional per-agent summary permutation invariant.
-
-    Sorting preserves the empirical distribution while removing dependence on
-    the order or labels of agents. It assumes a fixed population size; for
-    variable populations, use quantiles or a BayesFlow set summary network.
-    """
-
-    @wraps(function)
-    def sorted_function(contacts: ContactData) -> NDArray:
-        values = np.asarray(function(contacts))
-        if values.ndim != 1:
-            raise ValueError("sorted summaries must be one-dimensional")
-        return np.sort(values)
-
-    return sorted_function
-
-
-def contacts_per_bin(start: int, end: int) -> SummaryFunction:
-    """Count contacts at each inclusive 20-second interval boundary."""
-
+def _validate_bin_range(start: int, end: int) -> int:
     if (
         start < INTERVAL_SECONDS
         or end < start
@@ -100,29 +81,96 @@ def contacts_per_bin(start: int, end: int) -> SummaryFunction:
         raise ValueError(
             "start and end must be ordered positive 20-second boundaries"
         )
+    return (end - start) // INTERVAL_SECONDS + 1
 
-    bin_count = (end - start) // INTERVAL_SECONDS + 1
 
-    def summary(contacts: ContactData) -> NDArray[np.int64]:
-        times = np.asarray(contacts["t"])
-        if np.any(times < start) or np.any(times > end):
-            raise ValueError("contact times fall outside the summary range")
-        indices = (times - start) // INTERVAL_SECONDS
-        return np.bincount(indices, minlength=bin_count)
+def _contacts_per_bin(
+    contacts: ContactData,
+    *,
+    start: int,
+    end: int,
+    bin_count: int,
+) -> NDArray[np.int64]:
+    times = np.asarray(contacts["t"])
+    if np.any(times < start) or np.any(times > end):
+        raise ValueError("contact times fall outside the summary range")
+    indices = (times - start) // INTERVAL_SECONDS
+    return np.bincount(indices, minlength=bin_count)
+
+
+def mean_contacts_per_bin(start: int, end: int) -> SummaryFunction:
+    """Return mean concurrent contacts across fixed time bins."""
+
+    bin_count = _validate_bin_range(start, end)
+
+    def summary(contacts: ContactData) -> float:
+        counts = _contacts_per_bin(
+            contacts,
+            start=start,
+            end=end,
+            bin_count=bin_count,
+        )
+        return float(counts.mean())
 
     return summary
 
 
-def cumulative_contact_times(
+def stdev_contacts_per_bin(start: int, end: int) -> SummaryFunction:
+    """Return population standard deviation of concurrent contacts."""
+
+    bin_count = _validate_bin_range(start, end)
+
+    def summary(contacts: ContactData) -> float:
+        counts = _contacts_per_bin(
+            contacts,
+            start=start,
+            end=end,
+            bin_count=bin_count,
+        )
+        return float(counts.std())
+
+    return summary
+
+
+def lag_one_contact_autocorrelation(
+    start: int,
+    end: int,
+) -> SummaryFunction:
+    """Return lag-one correlation of concurrent contact counts."""
+
+    bin_count = _validate_bin_range(start, end)
+
+    def summary(contacts: ContactData) -> float:
+        counts = _contacts_per_bin(
+            contacts,
+            start=start,
+            end=end,
+            bin_count=bin_count,
+        ).astype(np.float64)
+        if len(counts) < 2:
+            return 0.0
+        first = counts[:-1] - counts[:-1].mean()
+        second = counts[1:] - counts[1:].mean()
+        denominator = np.linalg.norm(first) * np.linalg.norm(second)
+        return (
+            0.0
+            if np.isclose(denominator, 0.0)
+            else float(np.dot(first, second) / denominator)
+        )
+
+    return summary
+
+
+def contact_time_coefficient_of_variation(
     agent_ids: Sequence[int],
 ) -> SummaryFunction:
-    """Return the sorted cumulative pair-contact time for every agent."""
+    """Return relative heterogeneity in cumulative agent contact time."""
 
     agents = _agent_sequence(agent_ids)
     positions = {int(agent): index for index, agent in enumerate(agents)}
 
-    def per_agent(contacts: ContactData) -> NDArray[np.int64]:
-        totals = np.zeros(len(agents), dtype=np.int64)
+    def summary(contacts: ContactData) -> float:
+        totals = np.zeros(len(agents), dtype=np.float64)
         endpoints = np.concatenate((contacts["i"], contacts["j"]))
         try:
             endpoint_positions = np.fromiter(
@@ -135,10 +183,10 @@ def cumulative_contact_times(
                 f"contact contains unknown agent ID {exc.args[0]}"
             ) from exc
         np.add.at(totals, endpoint_positions, INTERVAL_SECONDS)
-        return totals
+        mean = totals.mean()
+        return 0.0 if np.isclose(mean, 0.0) else float(totals.std() / mean)
 
-    return sorted_summary(per_agent)
-
+    return summary
 
 def cumulative_network_connectivity(
     agent_ids: Sequence[int],
@@ -222,21 +270,41 @@ def cumulative_network_assortativity(
     return summary
 
 
-def _build_contacts_per_bin(
+def _build_mean_contacts_per_bin(
     _n_agents: int,
     n_steps: int,
 ) -> SummaryFunction:
-    return contacts_per_bin(
+    return mean_contacts_per_bin(
         INTERVAL_SECONDS,
         n_steps * INTERVAL_SECONDS,
     )
 
 
-def _build_cumulative_contact_times(
+def _build_stdev_contacts_per_bin(
+    _n_agents: int,
+    n_steps: int,
+) -> SummaryFunction:
+    return stdev_contacts_per_bin(
+        INTERVAL_SECONDS,
+        n_steps * INTERVAL_SECONDS,
+    )
+
+
+def _build_lag_one_contact_autocorrelation(
+    _n_agents: int,
+    n_steps: int,
+) -> SummaryFunction:
+    return lag_one_contact_autocorrelation(
+        INTERVAL_SECONDS,
+        n_steps * INTERVAL_SECONDS,
+    )
+
+
+def _build_contact_time_coefficient_of_variation(
     n_agents: int,
     _n_steps: int,
 ) -> SummaryFunction:
-    return cumulative_contact_times(range(n_agents))
+    return contact_time_coefficient_of_variation(range(n_agents))
 
 
 def _build_cumulative_network_connectivity(
@@ -261,8 +329,14 @@ def _build_cumulative_network_assortativity(
 
 
 SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
-    "contacts_per_bin": _build_contacts_per_bin,
-    "cumulative_contact_times": _build_cumulative_contact_times,
+    "mean_contacts_per_bin": _build_mean_contacts_per_bin,
+    "stdev_contacts_per_bin": _build_stdev_contacts_per_bin,
+    "lag_one_contact_autocorrelation": (
+        _build_lag_one_contact_autocorrelation
+    ),
+    "contact_time_coefficient_of_variation": (
+        _build_contact_time_coefficient_of_variation
+    ),
     "cumulative_network_connectivity": (
         _build_cumulative_network_connectivity
     ),
@@ -296,11 +370,12 @@ __all__ = [
     "SummaryBuilder",
     "SummaryFunction",
     "compute_summaries",
-    "contacts_per_bin",
-    "cumulative_contact_times",
+    "contact_time_coefficient_of_variation",
     "cumulative_network_assortativity",
     "cumulative_network_clustering",
     "cumulative_network_connectivity",
+    "lag_one_contact_autocorrelation",
     "make_summaries",
-    "sorted_summary",
+    "mean_contacts_per_bin",
+    "stdev_contacts_per_bin",
 ]

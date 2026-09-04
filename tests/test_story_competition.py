@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 import unittest
 from unittest.mock import patch
 
@@ -15,7 +15,6 @@ from models import STORY_MODEL_CLASSES, STORY_MODEL_REGISTRY
 from models.stories import (
     StoryCompetitionModel,
     make_story_summaries,
-    ranked_story_mask,
     ranked_story_mentions,
     validate_story_data,
 )
@@ -56,25 +55,6 @@ class FakePyMC:
     @classmethod
     def HalfNormal(cls, name: str, **kwargs: object) -> object:
         return cls._add("HalfNormal", name, **kwargs)
-
-
-class FakeRoutingAdapter:
-    def __init__(self) -> None:
-        self.operations: list[tuple[object, ...]] = []
-
-    def to_array(self, *, include):
-        self.operations.append(("to_array", include))
-        return self
-
-    def convert_dtype(self, from_dtype, to_dtype, *, include):
-        self.operations.append(
-            ("convert_dtype", from_dtype, to_dtype, include)
-        )
-        return self
-
-    def rename(self, source, target):
-        self.operations.append(("rename", source, target))
-        return self
 
 
 PARAMETERS = {
@@ -138,7 +118,7 @@ class PriorAndHelperTests(unittest.TestCase):
         expected /= expected.sum()
         np.testing.assert_allclose(probabilities, expected)
 
-    def test_ranked_summary_is_permutation_invariant_and_padded(self) -> None:
+    def test_top_story_selection_is_permutation_invariant(self) -> None:
         mentions = np.asarray(
             [
                 [0, 2, 0],
@@ -154,7 +134,6 @@ class PriorAndHelperTests(unittest.TestCase):
                 [2, 0, 0],
                 [0, 2, 0],
                 [1, 0, 0],
-                [0, 0, 0],
             ],
             dtype=np.float32,
         )
@@ -180,68 +159,45 @@ class PriorAndHelperTests(unittest.TestCase):
         np.testing.assert_array_equal(truncated, expected[:3])
         self.assertEqual(first.dtype, np.float32)
 
-    def test_story_summaries_have_a_fixed_shape_for_variable_populations(
-        self,
-    ) -> None:
+    def test_story_summaries_are_scalar_and_hand_computed(self) -> None:
         summaries = make_story_summaries(
             n_days=3,
             story_count=2,
         )
-
-        empty = {"mentions": np.empty((0, 3))}
-        populated = {"mentions": [[1, 0, 0]]}
-
-        self.assertEqual(summaries["mentions"](empty).shape, (2, 3))
-        self.assertEqual(summaries["mentions"](populated).shape, (2, 3))
-        np.testing.assert_array_equal(
-            summaries["story_mask"](empty),
-            [0, 0],
-        )
-        np.testing.assert_array_equal(
-            summaries["story_mask"](populated),
-            [1, 0],
-        )
-
-    def test_story_mask_marks_population_rows_not_nonzero_series(self) -> None:
-        mask = ranked_story_mask(
-            {"mentions": [[0, 0], [2, 0], [0, 0]]},
-            n_days=2,
-            story_count=2,
-        )
-
-        np.testing.assert_array_equal(mask, [1, 1])
-
-    def test_story_adapters_route_panels_and_masks_separately(self) -> None:
-        model = StoryCompetitionModel()
-        posterior_adapter = model._adapt_summary_variables(
-            FakeRoutingAdapter(),
-            ["mentions", "story_mask"],
-        )
-
-        self.assertEqual(
-            posterior_adapter.operations,
-            [
-                ("rename", "mentions", "summary_variables"),
-                ("rename", "story_mask", "summary_mask"),
-            ],
-        )
-
-        fake_bf = SimpleNamespace(Adapter=FakeRoutingAdapter)
-        with patch("models.stories.base.bf", fake_bf):
-            comparison_adapter = (
-                model.make_bayesflow_model_comparison_adapter(
-                    make_story_summaries(n_days=3, story_count=2)
-                )
+        data = {
+            "mentions": np.asarray(
+                [[1, 0, 1], [0, 2, 0], [0, 0, 1]],
+                dtype=np.float32,
             )
+        }
+        values = {name: summary(data) for name, summary in summaries.items()}
 
-        self.assertIn(
-            ("rename", "mentions", "summary_variables"),
-            comparison_adapter.operations,
+        self.assertEqual(values["selected_story_count"], 2.0)
+        self.assertEqual(values["total_mentions"], 4.0)
+        self.assertAlmostEqual(
+            values["daily_total_stdev"],
+            np.std([1, 2, 1]),
         )
-        self.assertIn(
-            ("rename", "story_mask", "summary_mask"),
-            comparison_adapter.operations,
+        self.assertEqual(values["mean_reporting_story_count"], 1.0)
+        self.assertEqual(
+            values["story_mentions_coefficient_of_variation"],
+            0.0,
         )
+        self.assertEqual(values["mean_reporting_lifetime_days"], 2.0)
+        self.assertEqual(values["mention_concentration"], 0.5)
+        self.assertTrue(
+            all(np.asarray(value).shape == () for value in values.values())
+        )
+
+    def test_empty_story_population_has_finite_scalar_summaries(self) -> None:
+        summaries = make_story_summaries(n_days=3, story_count=2)
+        empty = {"mentions": np.empty((0, 3))}
+
+        values = np.asarray(
+            [summary(empty) for summary in summaries.values()]
+        )
+
+        np.testing.assert_array_equal(values, np.zeros(len(summaries)))
 
 
 class SimulationTests(unittest.TestCase):

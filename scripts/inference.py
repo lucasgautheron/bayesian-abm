@@ -33,7 +33,7 @@ def make_workflow(
     seed: int,
     context: Mapping[str, int],
 ) -> bf.BasicWorkflow:
-    """Build a BayesFlow workflow with direct or learned summaries."""
+    """Build a BayesFlow workflow conditioned on scalar summaries."""
 
     simulator = model.to_bayesflow_simulator(
         summaries,
@@ -43,30 +43,14 @@ def make_workflow(
     adapter = model.make_bayesflow_adapter(
         summaries,
         **context,
-    )
-    summary_network = model.make_bayesflow_summary_network(**context)
-    workflow_kwargs: dict[str, Any]
-    if summary_network is None:
-        adapter = adapter.rename(
-            "summary_variables",
-            "inference_conditions",
-        )
-        workflow_kwargs = {"inference_conditions": list(summaries)}
-    else:
-        workflow_kwargs = {
-            "summary_network": summary_network,
-            "summary_variables": [
-                name for name in summaries if name != "story_mask"
-            ],
-        }
-
+    ).rename("summary_variables", "inference_conditions")
     return bf.BasicWorkflow(
         simulator=simulator,
         adapter=adapter,
         inference_network=bf.networks.FlowMatching(),
         inference_variables=list(model.inference_variables or ()),
+        inference_conditions=list(summaries),
         standardize="all",
-        **workflow_kwargs,
     )
 
 

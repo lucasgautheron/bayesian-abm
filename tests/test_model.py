@@ -112,9 +112,9 @@ from base.summaries import compute_summaries
 
 SUMMARIES = {
     "contact_count": lambda contacts: len(contacts["t"]),
-    "people": lambda contacts: np.array(
-        [np.unique(contacts["i"]).size, np.unique(contacts["j"]).size]
-    ),
+    "participating_people": lambda contacts: np.unique(
+        np.concatenate((contacts["i"], contacts["j"]))
+    ).size,
 }
 
 
@@ -164,7 +164,12 @@ class ModelTests(unittest.TestCase):
         result = simulator()
         self.assertEqual(
             set(result),
-            {"rate", "propensities", "contact_count", "people"},
+            {
+                "rate",
+                "propensities",
+                "contact_count",
+                "participating_people",
+            },
         )
 
     def test_batched_bayesflow_simulator(self):
@@ -174,7 +179,7 @@ class ModelTests(unittest.TestCase):
         result = simulator.sample((5,))
         self.assertEqual(result["rate"].shape, (5,))
         self.assertEqual(result["propensities"].shape, (5, 3))
-        self.assertEqual(result["people"].shape, (5, 2))
+        self.assertEqual(result["participating_people"].shape, (5, 1))
 
     def test_batched_simulator_reports_completed_simulations(self):
         updates = []
@@ -211,7 +216,7 @@ class ModelTests(unittest.TestCase):
         self.assertIn(
             (
                 "concatenate",
-                ["contact_count", "people"],
+                ["contact_count", "participating_people"],
                 "inference_conditions",
             ),
             adapter.operations,
@@ -236,7 +241,7 @@ class DataTests(unittest.TestCase):
         summaries = compute_summaries(validated, SUMMARIES)
         self.assertEqual(summaries["contact_count"], 2)
         self.assertEqual(summaries["contact_count"].shape, (1,))
-        np.testing.assert_array_equal(summaries["people"], [2, 2])
+        np.testing.assert_array_equal(summaries["participating_people"], [3])
 
     def test_wrong_contact_dtype(self):
         contacts = {

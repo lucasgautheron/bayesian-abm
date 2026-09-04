@@ -6,7 +6,7 @@ import unittest
 
 import pyarrow.parquet as pq
 
-from scripts.convert_contacts import DAY_SECONDS, convert
+from data.convert_contacts import DAY_SECONDS, convert
 
 
 class ConvertContactsTests(unittest.TestCase):

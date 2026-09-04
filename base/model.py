@@ -312,7 +312,7 @@ class Model(ABC):
 
         summary_names = list(summaries)
         names = list(inference_names) + summary_names
-        adapter = (
+        return (
             adapter.to_array(include=names)
             .convert_dtype("float64", "float32", include=names)
             .expand_dims(scalar_names, axis=-1)
@@ -320,29 +320,8 @@ class Model(ABC):
                 list(inference_names),
                 into="inference_variables",
             )
+            .concatenate(summary_names, into="summary_variables")
         )
-        return self._adapt_summary_variables(adapter, summary_names)
-
-    def _adapt_summary_variables(
-        self,
-        adapter: bf.Adapter,
-        summary_names: Sequence[str],
-    ) -> bf.Adapter:
-        """Route native summaries to a BayesFlow summary tensor."""
-
-        return adapter.concatenate(
-            list(summary_names),
-            into="summary_variables",
-        )
-
-    def make_bayesflow_summary_network(
-        self,
-        **context: Any,
-    ) -> Any | None:
-        """Return an optional learned summary network for this model family."""
-
-        del context
-        return None
 
     @staticmethod
     def make_bayesflow_model_comparison_adapter(

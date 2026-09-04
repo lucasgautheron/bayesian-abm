@@ -9,7 +9,6 @@ from .base import (
     StoryData,
     StoryModel,
     make_story_summaries,
-    ranked_story_mask,
     ranked_story_mentions,
     validate_story_data,
 )
@@ -36,7 +35,6 @@ __all__ = [
     "StoryData",
     "StoryModel",
     "make_story_summaries",
-    "ranked_story_mask",
     "ranked_story_mentions",
     "validate_story_data",
 ]

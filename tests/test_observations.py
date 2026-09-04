@@ -32,7 +32,7 @@ def story_frame() -> pd.DataFrame:
 
 
 class StoryObservationTests(unittest.TestCase):
-    def test_loads_stories_as_one_ranked_population(self) -> None:
+    def test_loads_stories_as_one_scalar_summary_vector(self) -> None:
         observations = story_daily_frame_observations(
             story_frame(),
             story_count=2,
@@ -45,24 +45,26 @@ class StoryObservationTests(unittest.TestCase):
             observations.observation_ids,
             [STORY_DAILY],
         )
-        np.testing.assert_array_equal(
-            observations.conditions["mentions"],
-            [[[4, 0, 3], [0, 2, 1]]],
-        )
-        np.testing.assert_array_equal(
-            observations.conditions["story_mask"],
-            [[1, 1]],
-        )
-        np.testing.assert_array_equal(
-            observations.summaries["mentions"](
-                {"mentions": [[0, 2, 1], [4, 0, 3]]}
-            ),
-            observations.conditions["mentions"][0],
-        )
-        self.assertEqual(
-            observations.conditions["mentions"].dtype,
-            np.float32,
-        )
+        expected = {
+            "selected_story_count": 2.0,
+            "total_mentions": 10.0,
+            "daily_total_stdev": np.std([4, 2, 4]),
+            "mean_reporting_story_count": 4.0 / 3.0,
+            "story_mentions_coefficient_of_variation": 0.4,
+            "mean_reporting_lifetime_days": 2.5,
+            "mention_concentration": 0.58,
+        }
+        self.assertEqual(set(observations.conditions), set(expected))
+        for name, value in expected.items():
+            self.assertEqual(observations.conditions[name].shape, (1, 1))
+            self.assertEqual(
+                observations.conditions[name].dtype,
+                np.float32,
+            )
+            self.assertAlmostEqual(
+                float(observations.conditions[name][0, 0]),
+                value,
+            )
 
     def test_rejects_different_story_date_grids(self) -> None:
         frame = story_frame()

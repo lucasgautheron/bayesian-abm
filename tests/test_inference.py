@@ -30,8 +30,7 @@ class FakeAdapter:
 class FakeWorkflowModel:
     inference_variables = ("theta",)
 
-    def __init__(self, summary_network) -> None:
-        self.summary_network = summary_network
+    def __init__(self) -> None:
         self.adapter = FakeAdapter()
 
     def to_bayesflow_simulator(self, summaries, **kwargs):
@@ -41,11 +40,6 @@ class FakeWorkflowModel:
     def make_bayesflow_adapter(self, summaries, **context):
         self.adapter_arguments = (summaries, context)
         return self.adapter
-
-    def make_bayesflow_summary_network(self, **context):
-        self.network_context = context
-        return self.summary_network
-
 
 class PosteriorPlotDataTests(unittest.TestCase):
     def test_restores_scalar_axis_and_averages_vector_parameters(self) -> None:
@@ -69,28 +63,8 @@ class PosteriorPlotDataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing"):
             prepare_posterior_plot_data({}, ["rate"])
 
-    def test_workflow_uses_learned_story_summary_network(self) -> None:
-        model = FakeWorkflowModel(summary_network="story_encoder")
-        fake_bf = SimpleNamespace(
-            BasicWorkflow=lambda **kwargs: kwargs,
-            networks=SimpleNamespace(FlowMatching=lambda: "flow"),
-        )
-
-        with patch("scripts.inference.bf", fake_bf):
-            workflow = make_workflow(
-                model,
-                {"mentions": object(), "story_mask": object()},
-                seed=4,
-                context={"n_days": 3},
-            )
-
-        self.assertEqual(workflow["summary_network"], "story_encoder")
-        self.assertEqual(workflow["summary_variables"], ["mentions"])
-        self.assertNotIn("inference_conditions", workflow)
-        self.assertEqual(model.adapter.operations, [])
-
-    def test_workflow_preserves_direct_contact_conditions(self) -> None:
-        model = FakeWorkflowModel(summary_network=None)
+    def test_workflow_uses_direct_scalar_conditions(self) -> None:
+        model = FakeWorkflowModel()
         fake_bf = SimpleNamespace(
             BasicWorkflow=lambda **kwargs: kwargs,
             networks=SimpleNamespace(FlowMatching=lambda: "flow"),

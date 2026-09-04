@@ -77,8 +77,8 @@ class ModelComparisonTests(unittest.TestCase):
         self.assertEqual(approximator.batch_sizes, [2, 2, 1])
         self.assertEqual(prediction.shape, (5, 2))
 
-    def test_uses_learned_summary_network_for_story_models(self) -> None:
-        class StoryModel:
+    def test_uses_direct_scalar_conditions_for_all_models(self) -> None:
+        class ScalarModel:
             dataset = "story_daily"
 
             def __init__(self, name):
@@ -87,13 +87,9 @@ class ModelComparisonTests(unittest.TestCase):
             def to_bayesflow_simulator(self, summaries, **kwargs):
                 return (self.name, summaries, kwargs)
 
-            def make_bayesflow_summary_network(self, **context):
-                self.network_context = context
-                return "story_encoder"
-
             def make_bayesflow_model_comparison_adapter(self, summaries):
                 self.adapter_summaries = summaries
-                return "story_adapter"
+                return "scalar_adapter"
 
         class ComparisonSimulator:
             def __init__(self, **kwargs):
@@ -110,8 +106,8 @@ class ModelComparisonTests(unittest.TestCase):
                 MLP=lambda **kwargs: ("mlp", kwargs),
             ),
         )
-        models = [StoryModel("first"), StoryModel("second")]
-        summaries = {"mentions": object(), "story_mask": object()}
+        models = [ScalarModel("first"), ScalarModel("second")]
+        summaries = {"first_scalar": object(), "second_scalar": object()}
 
         with patch.object(model_comparison, "bf", fake_bf):
             approximator, _ = model_comparison.make_model_comparison(
@@ -121,14 +117,11 @@ class ModelComparisonTests(unittest.TestCase):
                 context={"n_days": 4},
             )
 
-        self.assertEqual(
-            approximator["summary_network"],
-            "story_encoder",
-        )
-        self.assertEqual(approximator["adapter"], "story_adapter")
+        self.assertNotIn("summary_network", approximator)
+        self.assertEqual(approximator["adapter"], "scalar_adapter")
         self.assertEqual(
             approximator["standardize"],
-            "summary_variables",
+            "inference_conditions",
         )
 
 
