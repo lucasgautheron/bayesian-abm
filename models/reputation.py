@@ -9,7 +9,7 @@ import numpy as np
 import pymc as pm
 from numpy.typing import ArrayLike, NDArray
 
-from base.abm import INTERVAL_SECONDS, Model
+from base.model import INTERVAL_SECONDS, Model
 
 
 STEPS_PER_MINUTE = 60 // INTERVAL_SECONDS
@@ -35,11 +35,10 @@ def partner_probabilities(
 def duration_in_steps(
     rng: np.random.Generator,
     mean_minutes: float,
-    shape: float,
 ) -> int:
-    """Draw a gamma duration and round it up to 20-second steps."""
+    """Draw an exponential duration and round it up to 20-second steps."""
 
-    duration_minutes = rng.gamma(shape, scale=mean_minutes / shape)
+    duration_minutes = rng.exponential(scale=mean_minutes)
     return max(1, int(np.ceil(duration_minutes * STEPS_PER_MINUTE)))
 
 
@@ -50,7 +49,6 @@ class ReputationConversationModel(Model):
     inference_variables = (
         "p_minute",
         "mean_duration_minutes",
-        "duration_shape",
         "reputation_sigma",
     )
 
@@ -61,11 +59,6 @@ class ReputationConversationModel(Model):
             pm.LogNormal(
                 "mean_duration_minutes",
                 mu=np.log(5.0),
-                sigma=0.5,
-            )
-            pm.LogNormal(
-                "duration_shape",
-                mu=np.log(2.0),
                 sigma=0.5,
             )
             reputation_sigma = pm.Exponential(
@@ -94,7 +87,6 @@ class ReputationConversationModel(Model):
         reputations = np.asarray(parameters["reputation"])
         p_step = per_step_probability(float(parameters["p_minute"]))
         mean_duration = float(parameters["mean_duration_minutes"])
-        duration_shape = float(parameters["duration_shape"])
 
         # Conversations are (initiator, partner, exclusive end step).
         conversations: list[tuple[int, int, int]] = []
@@ -131,7 +123,6 @@ class ReputationConversationModel(Model):
                 duration = duration_in_steps(
                     rng,
                     mean_duration,
-                    duration_shape,
                 )
                 conversations.append(
                     (initiator, partner, step + duration)

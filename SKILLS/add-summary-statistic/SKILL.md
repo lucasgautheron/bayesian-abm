@@ -5,8 +5,8 @@ description: Adds and integrates summary statistics for temporal contact data. U
 
 # Add a summary statistic
 
-Follow the interfaces in `base/abm.py` and the examples in
-`base/summaries.py`.
+Use the contact schema and validation in `base/model.py`, and follow the
+interfaces and examples in `base/summaries.py`.
 
 ## Requirements
 
@@ -37,10 +37,10 @@ Follow the interfaces in `base/abm.py` and the examples in
 
 ## Pair-plot behavior
 
-`scripts/simulate.py` plots scalar statistics directly and skips non-scalar
-statistics by default. With `--vector-moments`, it represents every non-scalar
-statistic by its mean and population standard deviation. Preserve this behavior
-when changing summary output shapes.
+`scripts/simulate.py` plots scalar statistics directly and represents
+non-scalar statistics by their mean. With `--vector-moments`, it also includes
+their population standard deviation. Preserve this behavior when changing
+summary output shapes.
 
 ## Verification
 

@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from base.abm import Model, compute_summaries
-from base.summaries import make_summaries
+from base.model import Model
+from base.summaries import compute_summaries, make_summaries
 from models import MODEL_REGISTRY
 from scripts.inference import (
     DEFAULT_DATA,
@@ -225,13 +225,17 @@ def run_simulations(
     contacts, n_agents, n_steps = load_contacts(data_path)
     context = {"n_agents": n_agents, "n_steps": n_steps}
     summaries = make_summaries(**context)
-    simulator = model.to_bayesflow_simulator(
-        summaries,
-        seed=seed,
-        include_parameters=False,
-        **context,
-    )
-    simulated = simulator.sample((runs,))
+    from tqdm.auto import tqdm
+
+    with tqdm(total=runs, desc="Simulating", unit="run") as progress:
+        simulator = model.to_bayesflow_simulator(
+            summaries,
+            seed=seed,
+            include_parameters=False,
+            progress=progress.update,
+            **context,
+        )
+        simulated = simulator.sample((runs,))
     frame = summary_frame(
         simulated,
         runs=runs,

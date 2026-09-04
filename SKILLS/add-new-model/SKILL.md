@@ -5,7 +5,7 @@ description: Plans, adds, and registers contact simulation models from probabili
 
 # Add a new model
 
-Follow the interfaces in `base/abm.py` and the concrete example in
+Follow the interfaces in `base/model.py` and the concrete example in
 `models/reputation.py`.
 
 ## Required specification and response
@@ -29,7 +29,7 @@ Follow the interfaces in `base/abm.py` and the concrete example in
 ## Requirements
 
 1. Add the implementation in a focused `models/<model_name>.py` module.
-2. Subclass `base.abm.Model`.
+2. Subclass `base.model.Model`.
 3. Give the class a unique, stable `name`.
 4. Set `inference_variables` to the prior variables inferred by BayesFlow. Use
    `None` only when every free prior variable is an inference target.
@@ -41,14 +41,14 @@ Follow the interfaces in `base/abm.py` and the concrete example in
 7. Return exactly the contact columns `t`, `i`, and `j`. Each must be a
    one-dimensional `numpy.ndarray` with dtype `np.int32`; all three arrays must
    have equal lengths. Express `t` as interval-end times compatible with
-   `base.abm.INTERVAL_SECONDS`.
+   `base.model.INTERVAL_SECONDS`.
 8. Validate required context and reject invalid values with clear exceptions.
 9. Export the model class from its module with `__all__`.
 10. Register the class in `models/__init__.py`. Import it, add it to
     `MODEL_CLASSES`, and expose it by its stable `name` in `MODEL_REGISTRY`:
 
 ```python
-from base.abm import Model
+from base.model import Model
 from .new_model import NewModel
 
 MODEL_CLASSES: tuple[type[Model], ...] = (
@@ -59,6 +59,9 @@ MODEL_REGISTRY = {model.name: model for model in MODEL_CLASSES}
 
 Preserve all existing classes when extending `MODEL_CLASSES`. Export the new
 class and registry through `__all__`.
+
+11. Explore performance improvements without changing model behavior.
+    Simulations should be as fast as possible while keeping the code readable.
 
 ## Integration
 
@@ -72,4 +75,4 @@ class and registry through `__all__`.
 - Test deterministic helper functions and invalid inputs.
 - Test that identical seeds produce identical parameters and contacts.
 - Test that `models.MODEL_REGISTRY[NewModel.name]` resolves to the new class.
-- Run the new tests plus the existing model and ABM tests.
+- Run the new tests plus the existing base-model tests.

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, ClassVar, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Union
 
 import bayesflow as bf
 import numpy as np
 import pymc as pm
 from numpy.typing import ArrayLike, NDArray
+
+if TYPE_CHECKING:
+    from base.summaries import Summaries
 
 
 INTERVAL_SECONDS = 20
@@ -17,8 +20,6 @@ CONTACT_KEYS = ("t", "i", "j")
 
 ContactData = dict[str, NDArray[np.int32]]
 ParameterData = dict[str, NDArray[Any]]
-SummaryFunction = Callable[[ContactData], ArrayLike]
-Summaries = Mapping[str, SummaryFunction]
 Seed = Union[
     int,
     np.integer,
@@ -41,24 +42,6 @@ def validate_contacts(contacts: Mapping[str, ArrayLike]) -> ContactData:
         raise TypeError("contact columns must have dtype int32")
     if len({len(values) for values in result.values()}) != 1:
         raise ValueError("contact columns must have equal lengths")
-    return result
-
-
-def compute_summaries(
-    contacts: Mapping[str, ArrayLike],
-    summaries: Summaries,
-) -> dict[str, NDArray[Any]]:
-    """Apply shared summary functions to native contact records."""
-
-    contacts = validate_contacts(contacts)
-    result = {
-        name: np.atleast_1d(
-            np.asarray(function(contacts), dtype=np.float32)
-        )
-        for name, function in summaries.items()
-    }
-    if any(not np.all(np.isfinite(value)) for value in result.values()):
-        raise ValueError("summary statistics must be finite")
     return result
 
 
@@ -161,6 +144,8 @@ class Model(ABC):
     ) -> Callable[..., dict[str, NDArray[Any]]]:
         """Return an unbatched simulator accepted by ``bf.make_simulator``."""
 
+        from base.summaries import compute_summaries
+
         rng = np.random.default_rng(seed)
 
         def simulator(**context: Any) -> dict[str, NDArray[Any]]:
@@ -179,8 +164,11 @@ class Model(ABC):
         *,
         seed: Seed,
         include_parameters: bool,
+        progress: Callable[[int], object] | None,
         context: Mapping[str, Any],
     ) -> Callable[..., dict[str, NDArray[Any]]]:
+        from base.summaries import compute_summaries
+
         prior, inference_names, simulator_names = self._prior(context)
         rng = np.random.default_rng(seed)
 
@@ -206,6 +194,8 @@ class Model(ABC):
                     summaries,
                 ).items():
                     summary_draws[name].append(value)
+                if progress is not None:
+                    progress(1)
 
             result = {
                 name: np.stack(values).reshape(
@@ -232,6 +222,7 @@ class Model(ABC):
         *,
         seed: Seed = None,
         include_parameters: bool = True,
+        progress: Callable[[int], object] | None = None,
         **context: Any,
     ) -> bf.simulators.Simulator:
         """Build an efficient batched BayesFlow simulator."""
@@ -240,6 +231,7 @@ class Model(ABC):
             summaries,
             seed=seed,
             include_parameters=include_parameters,
+            progress=progress,
             context=context,
         )
         return bf.simulators.LambdaSimulator(sample_fn, is_batched=True)
@@ -329,8 +321,5 @@ __all__ = [
     "ContactData",
     "Model",
     "ParameterData",
-    "Summaries",
-    "SummaryFunction",
-    "compute_summaries",
     "validate_contacts",
 ]

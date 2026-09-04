@@ -5,15 +5,35 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from functools import wraps
 from itertools import combinations
+from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from base.model import ContactData, INTERVAL_SECONDS, validate_contacts
 
-INTERVAL_SECONDS = 20
-Contacts = Mapping[str, NDArray[np.int32]]
-SummaryFunction = Callable[[Contacts], ArrayLike]
+
+SummaryFunction = Callable[[ContactData], ArrayLike]
+Summaries = Mapping[str, SummaryFunction]
 SummaryBuilder = Callable[[int, int], SummaryFunction]
+
+
+def compute_summaries(
+    contacts: Mapping[str, ArrayLike],
+    summaries: Summaries,
+) -> dict[str, NDArray[Any]]:
+    """Apply shared summary functions to native contact records."""
+
+    contacts = validate_contacts(contacts)
+    result = {
+        name: np.atleast_1d(
+            np.asarray(function(contacts), dtype=np.float32)
+        )
+        for name, function in summaries.items()
+    }
+    if any(not np.all(np.isfinite(value)) for value in result.values()):
+        raise ValueError("summary statistics must be finite")
+    return result
 
 
 def _agent_sequence(agent_ids: Sequence[int]) -> NDArray:
@@ -30,7 +50,7 @@ def _agent_sequence(agent_ids: Sequence[int]) -> NDArray:
 
 
 def _cumulative_neighbors(
-    contacts: Contacts,
+    contacts: ContactData,
     agents: NDArray,
 ) -> list[set[int]]:
     positions = {int(agent): index for index, agent in enumerate(agents)}
@@ -59,7 +79,7 @@ def sorted_summary(function: SummaryFunction) -> SummaryFunction:
     """
 
     @wraps(function)
-    def sorted_function(contacts: Contacts) -> NDArray:
+    def sorted_function(contacts: ContactData) -> NDArray:
         values = np.asarray(function(contacts))
         if values.ndim != 1:
             raise ValueError("sorted summaries must be one-dimensional")
@@ -83,7 +103,7 @@ def contacts_per_bin(start: int, end: int) -> SummaryFunction:
 
     bin_count = (end - start) // INTERVAL_SECONDS + 1
 
-    def summary(contacts: Contacts) -> NDArray[np.int64]:
+    def summary(contacts: ContactData) -> NDArray[np.int64]:
         times = np.asarray(contacts["t"])
         if np.any(times < start) or np.any(times > end):
             raise ValueError("contact times fall outside the summary range")
@@ -101,7 +121,7 @@ def cumulative_contact_times(
     agents = _agent_sequence(agent_ids)
     positions = {int(agent): index for index, agent in enumerate(agents)}
 
-    def per_agent(contacts: Contacts) -> NDArray[np.int64]:
+    def per_agent(contacts: ContactData) -> NDArray[np.int64]:
         totals = np.zeros(len(agents), dtype=np.int64)
         endpoints = np.concatenate((contacts["i"], contacts["j"]))
         try:
@@ -127,7 +147,7 @@ def cumulative_network_connectivity(
 
     agents = _agent_sequence(agent_ids)
 
-    def summary(contacts: Contacts) -> float:
+    def summary(contacts: ContactData) -> float:
         neighbors = _cumulative_neighbors(contacts, agents)
         degree_sum = sum(len(adjacent) for adjacent in neighbors)
         return degree_sum / (len(agents) * (len(agents) - 1))
@@ -142,7 +162,7 @@ def cumulative_network_clustering(
 
     agents = _agent_sequence(agent_ids)
 
-    def summary(contacts: Contacts) -> float:
+    def summary(contacts: ContactData) -> float:
         neighbors = _cumulative_neighbors(contacts, agents)
         coefficients = np.zeros(len(agents), dtype=np.float64)
         for agent, adjacent in enumerate(neighbors):
@@ -172,7 +192,7 @@ def cumulative_network_assortativity(
 
     agents = _agent_sequence(agent_ids)
 
-    def summary(contacts: Contacts) -> float:
+    def summary(contacts: ContactData) -> float:
         neighbors = _cumulative_neighbors(contacts, agents)
         degrees = np.asarray(
             [len(adjacent) for adjacent in neighbors],
@@ -272,8 +292,10 @@ def make_summaries(
 __all__ = [
     "INTERVAL_SECONDS",
     "SUMMARY_BUILDERS",
+    "Summaries",
     "SummaryBuilder",
     "SummaryFunction",
+    "compute_summaries",
     "contacts_per_bin",
     "cumulative_contact_times",
     "cumulative_network_assortativity",

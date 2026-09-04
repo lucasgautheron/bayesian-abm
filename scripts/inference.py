@@ -21,9 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from base.abm import ContactData, Model, Summaries, compute_summaries
+from base.model import ContactData, Model
 from base.summaries import (
     INTERVAL_SECONDS,
+    Summaries,
+    compute_summaries,
     make_summaries,
 )
 from models import MODEL_REGISTRY

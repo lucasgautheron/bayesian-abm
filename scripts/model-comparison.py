@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from base.abm import Model, Summaries, compute_summaries
-from base.summaries import make_summaries
+from base.model import Model
+from base.summaries import Summaries, compute_summaries, make_summaries
 from models import MODEL_REGISTRY
 from scripts.inference import (
     DEFAULT_DATA,
