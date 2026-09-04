@@ -5,7 +5,7 @@ from base.model import Model
 from .base import (
     DEFAULT_STORY_SUMMARY_COUNT,
     STORY_DATASET,
-    STORY_SUMMARY_KEYS,
+    STORY_SUMMARY_STATISTICS,
     StoryData,
     StoryModel,
     make_story_summaries,
@@ -30,7 +30,7 @@ __all__ = [
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
     "STORY_DATASET",
-    "STORY_SUMMARY_KEYS",
+    "STORY_SUMMARY_STATISTICS",
     "StoryCompetitionModel",
     "StoryData",
     "StoryModel",

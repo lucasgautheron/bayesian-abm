@@ -18,20 +18,8 @@ from scripts.inference import (
 )
 
 
-class FakeAdapter:
-    def __init__(self) -> None:
-        self.operations: list[tuple[str, str, str]] = []
-
-    def rename(self, source: str, target: str):
-        self.operations.append(("rename", source, target))
-        return self
-
-
 class FakeWorkflowModel:
     inference_variables = ("theta",)
-
-    def __init__(self) -> None:
-        self.adapter = FakeAdapter()
 
     def to_bayesflow_simulator(self, summaries, **kwargs):
         self.simulator_arguments = (summaries, kwargs)
@@ -39,7 +27,7 @@ class FakeWorkflowModel:
 
     def make_bayesflow_adapter(self, summaries, **context):
         self.adapter_arguments = (summaries, context)
-        return self.adapter
+        return "adapter"
 
 class PosteriorPlotDataTests(unittest.TestCase):
     def test_restores_scalar_axis_and_averages_vector_parameters(self) -> None:
@@ -80,10 +68,7 @@ class PosteriorPlotDataTests(unittest.TestCase):
 
         self.assertEqual(workflow["inference_conditions"], ["contacts"])
         self.assertNotIn("summary_network", workflow)
-        self.assertEqual(
-            model.adapter.operations,
-            [("rename", "summary_variables", "inference_conditions")],
-        )
+        self.assertEqual(workflow["adapter"], "adapter")
 
     def test_samples_all_observations_in_batches(self) -> None:
         class Workflow:

@@ -114,21 +114,6 @@ def choose_partner(
     return int(rng.choice(candidate_list, p=probabilities))
 
 
-def _scalar_parameter(
-    parameters: Mapping[str, NDArray[Any]],
-    name: str,
-) -> float:
-    """Read a finite scalar simulation parameter."""
-
-    value = np.asarray(parameters[name])
-    if value.ndim != 0:
-        raise ValueError(f"{name} must be a scalar")
-    result = float(value)
-    if not np.isfinite(result):
-        raise ValueError(f"{name} must be finite")
-    return result
-
-
 class FriendModel(ContactModel):
     """Agents prefer friends sometimes and reputable partners otherwise."""
 
@@ -204,14 +189,11 @@ class FriendModel(ContactModel):
                 "reputation must be a finite vector with length n_agents"
             )
 
-        p_minute = _scalar_parameter(parameters, "p_minute")
-        mean_duration = _scalar_parameter(
-            parameters,
-            "mean_duration_minutes",
-        )
-        phi = _scalar_parameter(parameters, "phi")
-        block_strength = _scalar_parameter(parameters, "block_strength")
-        p_friend = _scalar_parameter(parameters, "p_friend")
+        p_minute = parameters["p_minute"]
+        mean_duration = parameters["mean_duration_minutes"]
+        phi = parameters["phi"]
+        block_strength = parameters["block_strength"]
+        p_friend = parameters["p_friend"]
 
         if not 0 <= p_minute <= 1:
             raise ValueError("p_minute must be between 0 and 1")

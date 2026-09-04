@@ -22,16 +22,6 @@ def _positive_integer(value: Any, name: str) -> int:
     return int(value)
 
 
-def _scalar_parameter(
-    parameters: Mapping[str, NDArray[Any]],
-    name: str,
-) -> float:
-    value = np.asarray(parameters[name])
-    if value.ndim != 0 or not np.isfinite(value):
-        raise ValueError(f"{name} must be a finite scalar")
-    return float(value)
-
-
 def story_choice_probabilities(
     ages: ArrayLike,
     appeals: ArrayLike,
@@ -109,10 +99,10 @@ class StoryCompetitionModel(StoryModel):
         except KeyError as exc:
             raise ValueError("story models require n_days") from exc
 
-        story_rate = _scalar_parameter(parameters, "story_rate")
-        report_rate = _scalar_parameter(parameters, "report_rate")
-        beta_age = _scalar_parameter(parameters, "beta_age")
-        beta_appeal = _scalar_parameter(parameters, "beta_appeal")
+        story_rate = parameters["story_rate"]
+        report_rate = parameters["report_rate"]
+        beta_age = parameters["beta_age"]
+        beta_appeal = parameters["beta_appeal"]
         if story_rate <= 0 or report_rate <= 0:
             raise ValueError("story_rate and report_rate must be positive")
         if beta_appeal < 0:

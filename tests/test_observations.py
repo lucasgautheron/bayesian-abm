@@ -13,6 +13,7 @@ sys.modules.setdefault("pymc", ModuleType("pymc"))
 
 from base.observations import (
     STORY_DAILY,
+    condition_batches,
     story_daily_frame_observations,
 )
 from models import model_registry, resolve_model
@@ -29,6 +30,30 @@ def story_frame() -> pd.DataFrame:
             "mentions": [0, 2, 1, 4, 0, 3],
         }
     )
+
+
+class ConditionBatchTests(unittest.TestCase):
+    def test_batches_aligned_conditions(self) -> None:
+        batches = list(
+            condition_batches(
+                {
+                    "first": np.arange(5),
+                    "second": np.arange(10).reshape(5, 2),
+                },
+                2,
+            )
+        )
+
+        self.assertEqual([len(batch["first"]) for batch in batches], [2, 2, 1])
+
+    def test_rejects_misaligned_conditions(self) -> None:
+        with self.assertRaisesRegex(ValueError, "share an observation axis"):
+            list(
+                condition_batches(
+                    {"first": np.arange(2), "second": np.arange(3)},
+                    2,
+                )
+            )
 
 
 class StoryObservationTests(unittest.TestCase):

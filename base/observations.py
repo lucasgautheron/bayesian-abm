@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,10 +14,10 @@ import pandas as pd
 from base.model import ContactData
 from base.summaries import (
     INTERVAL_SECONDS,
+    compute_scalar_summaries,
     compute_summaries,
     make_summaries,
 )
-from models import MODEL_REGISTRIES
 from models.stories import (
     DEFAULT_STORY_SUMMARY_COUNT,
     make_story_summaries,
@@ -26,8 +26,6 @@ from models.stories import (
 
 CONTACTS = "contacts"
 STORY_DAILY = "story_daily"
-DEFAULT_STORY_COUNT = DEFAULT_STORY_SUMMARY_COUNT
-DATASETS = tuple(MODEL_REGISTRIES)
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_PATHS = {
     CONTACTS: ROOT / "data" / "contacts" / "contacts.parquet",
@@ -53,6 +51,30 @@ class Observations:
     @property
     def count(self) -> int:
         return len(self.observation_ids)
+
+
+def condition_batches(
+    conditions: Mapping[str, ArrayLike],
+    batch_size: int,
+) -> Iterator[dict[str, NDArray[Any]]]:
+    """Yield aligned observation conditions in bounded batches."""
+
+    if batch_size < 1:
+        raise ValueError("observation batch size must be positive")
+    arrays = {
+        name: np.asarray(values) for name, values in conditions.items()
+    }
+    counts = {values.shape[0] for values in arrays.values()}
+    if len(counts) != 1:
+        raise ValueError("condition arrays must share an observation axis")
+    count = counts.pop()
+    if count < 1:
+        raise ValueError("at least one observation is required")
+    for start in range(0, count, batch_size):
+        yield {
+            name: values[start : start + batch_size]
+            for name, values in arrays.items()
+        }
 
 
 def load_contacts(path: Path) -> tuple[ContactData, int, int]:
@@ -115,7 +137,7 @@ def contact_observations(path: Path) -> Observations:
 def story_daily_frame_observations(
     frame: pd.DataFrame,
     *,
-    story_count: int = DEFAULT_STORY_COUNT,
+    story_count: int = DEFAULT_STORY_SUMMARY_COUNT,
 ) -> Observations:
     """Convert a dense daily panel into one joint population condition."""
 
@@ -167,10 +189,12 @@ def story_daily_frame_observations(
     )
     story_data = {"mentions": mention_matrix}
     conditions = {
-        name: np.atleast_1d(
-            np.asarray(summary(story_data), dtype=np.float32)
-        )[None, ...]
-        for name, summary in summaries.items()
+        name: values[None, ...]
+        for name, values in compute_scalar_summaries(
+            story_data,
+            summaries,
+            label="story summary",
+        ).items()
     }
     return Observations(
         dataset=STORY_DAILY,
@@ -206,7 +230,7 @@ def load_observations(
     try:
         loader = OBSERVATION_LOADERS[dataset]
     except KeyError as exc:
-        choices = ", ".join(DATASETS)
+        choices = ", ".join(OBSERVATION_LOADERS)
         raise ValueError(
             f"unknown dataset {dataset!r}; available datasets: {choices}"
         ) from exc
@@ -215,12 +239,11 @@ def load_observations(
 
 __all__ = [
     "CONTACTS",
-    "DATASETS",
     "DEFAULT_DATA_PATHS",
-    "DEFAULT_STORY_COUNT",
     "OBSERVATION_LOADERS",
     "STORY_DAILY",
     "Observations",
+    "condition_batches",
     "contact_observations",
     "load_contacts",
     "load_observations",

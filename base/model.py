@@ -166,33 +166,6 @@ class Model(ABC):
         inferred = {name: parameters[name] for name in inference_names}
         return inferred, simulation
 
-    def as_bayesflow_simulator(
-        self,
-        summaries: Summaries,
-        *,
-        seed: Seed = None,
-        include_parameters: bool = True,
-        **fixed_context: Any,
-    ) -> Callable[..., dict[str, NDArray[Any]]]:
-        """Return an unbatched simulator accepted by ``bf.make_simulator``."""
-
-        rng = np.random.default_rng(seed)
-
-        def simulator(**context: Any) -> dict[str, NDArray[Any]]:
-            simulation_context = {**fixed_context, **context}
-            parameters, simulation = self.sample(
-                seed=rng,
-                **simulation_context,
-            )
-            result = self.summarize(
-                simulation,
-                summaries,
-                **simulation_context,
-            )
-            return {**parameters, **result} if include_parameters else result
-
-        return simulator
-
     def _batched_simulator(
         self,
         summaries: Summaries,
@@ -320,7 +293,7 @@ class Model(ABC):
                 list(inference_names),
                 into="inference_variables",
             )
-            .concatenate(summary_names, into="summary_variables")
+            .concatenate(summary_names, into="inference_conditions")
         )
 
     @staticmethod

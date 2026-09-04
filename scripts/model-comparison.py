@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from base.model import Model
-from base.observations import load_observations
+from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
 from models import resolve_model
 
@@ -117,22 +117,8 @@ def predict_observations(
 ) -> NDArray[np.float64]:
     """Predict every observation in bounded condition batches."""
 
-    if batch_size < 1:
-        raise ValueError("observation batch size must be positive")
-    counts = {np.asarray(values).shape[0] for values in conditions.values()}
-    if len(counts) != 1:
-        raise ValueError("condition arrays must share an observation axis")
-    count = counts.pop()
-    if count < 1:
-        raise ValueError("at least one observation is required")
-
     predictions = []
-    for start in range(0, count, batch_size):
-        stop = min(start + batch_size, count)
-        batch = {
-            name: np.asarray(values)[start:stop]
-            for name, values in conditions.items()
-        }
+    for batch in condition_batches(conditions, batch_size):
         predictions.append(
             np.asarray(
                 approximator.predict(conditions=batch, probs=True),

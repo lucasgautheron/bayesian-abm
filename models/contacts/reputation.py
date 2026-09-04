@@ -86,8 +86,8 @@ class ReputationConversationModel(ContactModel):
             raise ValueError("n_agents must be at least 2 and n_steps positive")
 
         reputations = np.asarray(parameters["reputation"])
-        p_step = per_step_probability(float(parameters["p_minute"]))
-        mean_duration = float(parameters["mean_duration_minutes"])
+        p_step = per_step_probability(parameters["p_minute"])
+        mean_duration = parameters["mean_duration_minutes"]
 
         # Conversations are (initiator, partner, exclusive end step).
         conversations: list[tuple[int, int, int]] = []

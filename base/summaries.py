@@ -17,24 +17,37 @@ Summaries = Mapping[str, SummaryFunction]
 SummaryBuilder = Callable[[int, int], SummaryFunction]
 
 
+def compute_scalar_summaries(
+    data: Any,
+    summaries: Mapping[str, Callable[[Any], ArrayLike]],
+    *,
+    label: str = "summary",
+) -> dict[str, NDArray[Any]]:
+    """Apply summary functions and enforce finite scalar outputs."""
+
+    result = {
+        name: np.atleast_1d(
+            np.asarray(function(data), dtype=np.float32)
+        )
+        for name, function in summaries.items()
+    }
+    if any(value.size != 1 for value in result.values()):
+        raise ValueError(f"{label} statistics must be scalar")
+    if any(not np.all(np.isfinite(value)) for value in result.values()):
+        raise ValueError(f"{label} statistics must be finite")
+    return result
+
+
 def compute_summaries(
     contacts: Mapping[str, ArrayLike],
     summaries: Summaries,
 ) -> dict[str, NDArray[Any]]:
     """Apply shared summary functions to native contact records."""
 
-    contacts = validate_contacts(contacts)
-    result = {
-        name: np.atleast_1d(
-            np.asarray(function(contacts), dtype=np.float32)
-        )
-        for name, function in summaries.items()
-    }
-    if any(value.size != 1 for value in result.values()):
-        raise ValueError("summary statistics must be scalar")
-    if any(not np.all(np.isfinite(value)) for value in result.values()):
-        raise ValueError("summary statistics must be finite")
-    return result
+    return compute_scalar_summaries(
+        validate_contacts(contacts),
+        summaries,
+    )
 
 
 def _agent_sequence(agent_ids: Sequence[int]) -> NDArray:
@@ -369,6 +382,7 @@ __all__ = [
     "Summaries",
     "SummaryBuilder",
     "SummaryFunction",
+    "compute_scalar_summaries",
     "compute_summaries",
     "contact_time_coefficient_of_variation",
     "cumulative_network_assortativity",

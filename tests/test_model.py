@@ -157,21 +157,6 @@ class ModelTests(unittest.TestCase):
             set(parameters), {"rate", "propensities", "nuisance"}
         )
 
-    def test_bayesflow_callable(self):
-        simulator = ToyModel().as_bayesflow_simulator(
-            SUMMARIES, seed=1, n_people=3
-        )
-        result = simulator()
-        self.assertEqual(
-            set(result),
-            {
-                "rate",
-                "propensities",
-                "contact_count",
-                "participating_people",
-            },
-        )
-
     def test_batched_bayesflow_simulator(self):
         simulator = ToyModel().to_bayesflow_simulator(
             SUMMARIES, seed=1, n_people=3
@@ -207,6 +192,14 @@ class ModelTests(unittest.TestCase):
         )
         self.assertIn(
             ("expand_dims", ["rate"], -1),
+            adapter.operations,
+        )
+        self.assertIn(
+            (
+                "concatenate",
+                ["contact_count", "participating_people"],
+                "inference_conditions",
+            ),
             adapter.operations,
         )
 

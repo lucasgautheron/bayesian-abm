@@ -13,6 +13,7 @@ sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
 from models import STORY_MODEL_CLASSES, STORY_MODEL_REGISTRY
 from models.stories import (
+    STORY_SUMMARY_STATISTICS,
     StoryCompetitionModel,
     make_story_summaries,
     ranked_story_mentions,
@@ -164,6 +165,7 @@ class PriorAndHelperTests(unittest.TestCase):
             n_days=3,
             story_count=2,
         )
+        self.assertEqual(set(summaries), set(STORY_SUMMARY_STATISTICS))
         data = {
             "mentions": np.asarray(
                 [[1, 0, 1], [0, 2, 0], [0, 0, 1]],

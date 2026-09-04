@@ -2,28 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from base.model import Model, SimulationData
+from base.summaries import compute_scalar_summaries
 
 
 STORY_DATASET = "story_daily"
 STORY_KEYS = ("mentions",)
-STORY_SUMMARY_KEYS = (
-    "selected_story_count",
-    "total_mentions",
-    "daily_total_stdev",
-    "mean_reporting_story_count",
-    "story_mentions_coefficient_of_variation",
-    "mean_reporting_lifetime_days",
-    "mention_concentration",
-)
 DEFAULT_STORY_SUMMARY_COUNT = 1_000
 StoryData = dict[str, NDArray[np.float32]]
+StorySummaryStatistic = Callable[[NDArray[np.float32]], float]
 
 
 def validate_story_data(
@@ -81,6 +74,68 @@ def ranked_story_mentions(
     return mentions[order]
 
 
+def _selected_story_count(mentions: NDArray[np.float32]) -> float:
+    return float(len(mentions))
+
+
+def _total_mentions(mentions: NDArray[np.float32]) -> float:
+    return float(mentions.sum(dtype=np.float64))
+
+
+def _daily_total_stdev(mentions: NDArray[np.float32]) -> float:
+    return float(mentions.sum(axis=0, dtype=np.float64).std())
+
+
+def _mean_reporting_story_count(
+    mentions: NDArray[np.float32],
+) -> float:
+    return float(np.count_nonzero(mentions > 0, axis=0).mean())
+
+
+def _story_mentions_coefficient_of_variation(
+    mentions: NDArray[np.float32],
+) -> float:
+    totals = mentions.sum(axis=1, dtype=np.float64)
+    if not len(totals):
+        return 0.0
+    mean = totals.mean()
+    return 0.0 if np.isclose(mean, 0.0) else float(totals.std() / mean)
+
+
+def _mean_reporting_lifetime_days(
+    mentions: NDArray[np.float32],
+) -> float:
+    if not len(mentions):
+        return 0.0
+    active = mentions > 0
+    has_reports = active.any(axis=1)
+    first = np.argmax(active, axis=1)
+    last = mentions.shape[1] - 1 - np.argmax(active[:, ::-1], axis=1)
+    return float(np.where(has_reports, last - first + 1, 0).mean())
+
+
+def _mention_concentration(mentions: NDArray[np.float32]) -> float:
+    totals = mentions.sum(axis=1, dtype=np.float64)
+    total = totals.sum()
+    if np.isclose(total, 0.0):
+        return 0.0
+    shares = totals / total
+    return float(np.dot(shares, shares))
+
+
+STORY_SUMMARY_STATISTICS: dict[str, StorySummaryStatistic] = {
+    "selected_story_count": _selected_story_count,
+    "total_mentions": _total_mentions,
+    "daily_total_stdev": _daily_total_stdev,
+    "mean_reporting_story_count": _mean_reporting_story_count,
+    "story_mentions_coefficient_of_variation": (
+        _story_mentions_coefficient_of_variation
+    ),
+    "mean_reporting_lifetime_days": _mean_reporting_lifetime_days,
+    "mention_concentration": _mention_concentration,
+}
+
+
 def make_story_summaries(
     *,
     n_days: int,
@@ -114,60 +169,9 @@ def make_story_summaries(
             )
         return cached_mentions
 
-    def selected_story_count(data: Mapping[str, ArrayLike]) -> float:
-        return float(len(selected(data)))
-
-    def total_mentions(data: Mapping[str, ArrayLike]) -> float:
-        return float(selected(data).sum(dtype=np.float64))
-
-    def daily_total_stdev(data: Mapping[str, ArrayLike]) -> float:
-        daily = selected(data).sum(axis=0, dtype=np.float64)
-        return float(daily.std())
-
-    def mean_reporting_story_count(data: Mapping[str, ArrayLike]) -> float:
-        reporting = np.count_nonzero(selected(data) > 0, axis=0)
-        return float(reporting.mean())
-
-    def story_mentions_coefficient_of_variation(
-        data: Mapping[str, ArrayLike],
-    ) -> float:
-        totals = selected(data).sum(axis=1, dtype=np.float64)
-        if not len(totals):
-            return 0.0
-        mean = totals.mean()
-        return 0.0 if np.isclose(mean, 0.0) else float(totals.std() / mean)
-
-    def mean_reporting_lifetime_days(
-        data: Mapping[str, ArrayLike],
-    ) -> float:
-        mentions = selected(data)
-        if not len(mentions):
-            return 0.0
-        active = mentions > 0
-        has_reports = active.any(axis=1)
-        first = np.argmax(active, axis=1)
-        last = int(n_days) - 1 - np.argmax(active[:, ::-1], axis=1)
-        lifetimes = np.where(has_reports, last - first + 1, 0)
-        return float(lifetimes.mean())
-
-    def mention_concentration(data: Mapping[str, ArrayLike]) -> float:
-        totals = selected(data).sum(axis=1, dtype=np.float64)
-        total = totals.sum()
-        if np.isclose(total, 0.0):
-            return 0.0
-        shares = totals / total
-        return float(np.dot(shares, shares))
-
     return {
-        "selected_story_count": selected_story_count,
-        "total_mentions": total_mentions,
-        "daily_total_stdev": daily_total_stdev,
-        "mean_reporting_story_count": mean_reporting_story_count,
-        "story_mentions_coefficient_of_variation": (
-            story_mentions_coefficient_of_variation
-        ),
-        "mean_reporting_lifetime_days": mean_reporting_lifetime_days,
-        "mention_concentration": mention_concentration,
+        name: lambda data, statistic=statistic: statistic(selected(data))
+        for name, statistic in STORY_SUMMARY_STATISTICS.items()
     }
 
 
@@ -194,28 +198,23 @@ class StoryModel(Model):
         **context: Any,
     ) -> dict[str, NDArray[Any]]:
         data = self.validate_simulation(simulation, **context)
-        if set(summaries) != set(STORY_SUMMARY_KEYS):
+        if set(summaries) != set(STORY_SUMMARY_STATISTICS):
             raise ValueError("story summaries do not match the registered set")
-        result = {
-            name: np.atleast_1d(
-                np.asarray(function(data), dtype=np.float32)
-            )
-            for name, function in summaries.items()
-        }
-        if any(value.size != 1 for value in result.values()):
-            raise ValueError("story summary statistics must be scalar")
-        if any(not np.all(np.isfinite(value)) for value in result.values()):
-            raise ValueError("story summary statistics must be finite")
-        return result
+        return compute_scalar_summaries(
+            data,
+            summaries,
+            label="story summary",
+        )
 
 
 __all__ = [
     "DEFAULT_STORY_SUMMARY_COUNT",
     "STORY_DATASET",
     "STORY_KEYS",
-    "STORY_SUMMARY_KEYS",
+    "STORY_SUMMARY_STATISTICS",
     "StoryData",
     "StoryModel",
+    "StorySummaryStatistic",
     "make_story_summaries",
     "ranked_story_mentions",
     "validate_story_data",
