@@ -14,7 +14,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-INTERVAL_SECONDS = 20
+SOURCE_INTERVAL_SECONDS = 20
+INTERVAL_SECONDS = 60
 DAY_SECONDS = 24 * 60 * 60
 BATCH_SIZE = 65_536
 INT32_MIN = -(2**31)
@@ -27,8 +28,13 @@ CONTACTS_SCHEMA = pa.schema(
         pa.field("j", pa.int32(), nullable=False),
     ],
     metadata={
-        b"description": b"Contacts active during the interval (t - 20, t] seconds",
+        b"description": (
+            b"Pairs observed in at least one 20-second source interval "
+            b"during (t - 60, t] seconds"
+        ),
         b"interval_seconds": str(INTERVAL_SECONDS).encode(),
+        b"source_interval_seconds": str(SOURCE_INTERVAL_SECONDS).encode(),
+        b"aggregation": b"any observed source interval",
     },
 )
 
@@ -62,10 +68,10 @@ def parse_record(line: str, line_number: int) -> tuple[int, int, int]:
         if not INT32_MIN <= value <= INT32_MAX:
             raise ParseError(f"line {line_number}: {name}={value} exceeds int32 range")
 
-    if t < INTERVAL_SECONDS or t % INTERVAL_SECONDS:
+    if t < SOURCE_INTERVAL_SECONDS or t % SOURCE_INTERVAL_SECONDS:
         raise ParseError(
             f"line {line_number}: t={t} is not a positive "
-            f"{INTERVAL_SECONDS}-second interval boundary"
+            f"{SOURCE_INTERVAL_SECONDS}-second interval boundary"
         )
     if i == j:
         raise ParseError(f"line {line_number}: self-contact for person {i}")
@@ -91,6 +97,8 @@ def convert(
     stats = ConversionStats()
     previous_t: Optional[int] = None
     first_day: Optional[int] = None
+    pending_t: Optional[int] = None
+    pending_pairs: dict[tuple[int, int], tuple[int, int]] = {}
     writer: Optional[pq.ParquetWriter] = None
 
     def flush() -> None:
@@ -100,6 +108,23 @@ def convert(
         writer.write_table(pa.Table.from_pydict(columns, schema=CONTACTS_SCHEMA))
         for values in columns.values():
             values.clear()
+
+    def emit_pending_interval() -> None:
+        nonlocal pending_t
+        if pending_t is None:
+            return
+        for i, j in pending_pairs.values():
+            columns["t"].append(pending_t)
+            columns["i"].append(i)
+            columns["j"].append(j)
+            people.update((i, j))
+            stats.rows += 1
+        stats.min_t = pending_t if stats.min_t is None else stats.min_t
+        stats.max_t = pending_t
+        pending_pairs.clear()
+        pending_t = None
+        if len(columns["t"]) >= BATCH_SIZE:
+            flush()
 
     try:
         writer = pq.ParquetWriter(
@@ -123,17 +148,16 @@ def convert(
                     break
                 previous_t = t
 
-                columns["t"].append(t)
-                columns["i"].append(i)
-                columns["j"].append(j)
-                people.update((i, j))
-                stats.rows += 1
-                stats.min_t = t if stats.min_t is None else min(stats.min_t, t)
-                stats.max_t = t if stats.max_t is None else max(stats.max_t, t)
+                interval_end = (
+                    (t - 1) // INTERVAL_SECONDS + 1
+                ) * INTERVAL_SECONDS
+                if pending_t is not None and interval_end != pending_t:
+                    emit_pending_interval()
+                pending_t = interval_end
+                pair = (min(i, j), max(i, j))
+                pending_pairs.setdefault(pair, (i, j))
 
-                if len(columns["t"]) >= BATCH_SIZE:
-                    flush()
-
+        emit_pending_interval()
         if not stats.rows:
             raise ParseError("source contains no contact records")
         flush()
