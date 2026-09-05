@@ -15,6 +15,7 @@ import pandas as pd
 
 from scripts.inference import (
     make_workflow,
+    parse_args,
     posterior_parameter_draws,
     run_inference,
     sample_observations,
@@ -90,6 +91,14 @@ class PosteriorPlotDataTests(unittest.TestCase):
             run_inference("latent_network", epochs=0)
         with self.assertRaisesRegex(ValueError, "batch_size"):
             run_inference("latent_network", batch_size=0)
+        with self.assertRaisesRegex(ValueError, "cpus"):
+            run_inference("latent_network", cpus=0)
+
+    def test_cpus_defaults_to_one(self) -> None:
+        with patch.object(sys, "argv", ["inference.py", "latent_network"]):
+            args = parse_args()
+
+        self.assertEqual(args.cpus, 1)
 
     def test_workflow_uses_direct_scalar_conditions(self) -> None:
         model = FakeWorkflowModel()

@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
 from base.model import Model
 from base.observations import load_observations
 from models import resolve_model
+from scripts.parallel import sample_model_in_processes, validate_cpus
 from visualization.diagnostics import plot_summary_pairplot
 
 
@@ -84,11 +85,13 @@ def run_simulations(
     output_path: Path | None = None,
     runs: int = DEFAULT_RUNS,
     seed: int = 42,
+    cpus: int = 1,
 ) -> Figure:
     """Run a model repeatedly and return its summary-statistic pair plot."""
 
     if runs < 2:
         raise ValueError("runs must be at least 2 to estimate densities")
+    validate_cpus(cpus)
     model: Model = resolve_model(model_name)
     observations = load_observations(model.dataset)
     context = observations.context
@@ -96,14 +99,24 @@ def run_simulations(
     from tqdm.auto import tqdm
 
     with tqdm(total=runs, desc="Simulating", unit="run") as progress:
-        simulator = model.to_bayesflow_simulator(
-            summaries,
-            seed=seed,
-            include_parameters=False,
-            progress=progress.update,
-            **context,
-        )
-        simulated = simulator.sample((runs,))
+        if cpus == 1:
+            simulator = model.to_bayesflow_simulator(
+                summaries,
+                seed=seed,
+                include_parameters=False,
+                progress=progress.update,
+                **context,
+            )
+            simulated = simulator.sample((runs,))
+        else:
+            simulated = sample_model_in_processes(
+                model_name,
+                runs=runs,
+                seed=seed,
+                cpus=cpus,
+                include_parameters=False,
+                progress=progress.update,
+            )
     frame = summary_frame(
         simulated,
         runs=runs,
@@ -144,6 +157,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runs", type=int, default=DEFAULT_RUNS)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
+        "--cpus",
+        type=int,
+        default=1,
+        help="worker processes for simulations (default: 1)",
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="also open the pair plot in a window",
@@ -159,6 +178,7 @@ def main() -> None:
         output_path=output,
         runs=args.runs,
         seed=args.seed,
+        cpus=args.cpus,
     )
     print(f"Saved simulation pair plot to {output.resolve()}")
     if args.show:

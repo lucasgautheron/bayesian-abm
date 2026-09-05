@@ -25,6 +25,7 @@ from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
 from models import resolve_model
+from scripts.parallel import sample_model_in_processes, validate_cpus
 from scripts.simulate import summary_frame
 from visualization.diagnostics import (
     plot_predictive_summary_pairplot,
@@ -135,6 +136,7 @@ def run_inference(
     diagnostics_path: Path | None = None,
     observation_batch_size: int = 256,
     seed: int = 42,
+    cpus: int = 1,
 ) -> dict[str, Any]:
     """Train, infer, and return posterior and diagnostic plots."""
 
@@ -144,6 +146,7 @@ def run_inference(
         raise ValueError("epochs must be positive")
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
+    validate_cpus(cpus)
 
     model = resolve_model(model_name)
     observations = load_observations(model.dataset)
@@ -160,13 +163,23 @@ def run_inference(
         desc="Training simulations",
         unit="run",
     ) as progress:
-        training_simulator = model.to_bayesflow_simulator(
-            summaries,
-            seed=seed,
-            progress=progress.update,
-            **context,
-        )
-        training_data = training_simulator.sample((num_simulations,))
+        if cpus == 1:
+            training_simulator = model.to_bayesflow_simulator(
+                summaries,
+                seed=seed,
+                progress=progress.update,
+                **context,
+            )
+            training_data = training_simulator.sample((num_simulations,))
+        else:
+            training_data = sample_model_in_processes(
+                model_name,
+                runs=num_simulations,
+                seed=seed,
+                cpus=cpus,
+                include_parameters=True,
+                progress=progress.update,
+            )
     workflow.fit_offline(
         training_data,
         epochs=epochs,
@@ -359,6 +372,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
+        "--cpus",
+        type=int,
+        default=1,
+        help="worker processes for offline simulations (default: 1)",
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="also open the pair plot in a window",
@@ -382,6 +401,7 @@ def main() -> None:
         diagnostics_path=args.diagnostics_dir,
         observation_batch_size=args.observation_batch_size,
         seed=args.seed,
+        cpus=args.cpus,
     )
     print(f"Saved posterior pair plot to {output.resolve()}")
     if args.predictive_runs > 0:

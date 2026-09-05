@@ -159,6 +159,25 @@ class ModelComparisonTests(unittest.TestCase):
                 ["reputation_conversation", "latent_network"],
                 batch_size=0,
             )
+        with self.assertRaisesRegex(ValueError, "cpus"):
+            model_comparison.run_model_comparison(
+                ["reputation_conversation", "latent_network"],
+                cpus=0,
+            )
+
+    def test_cpus_defaults_to_one(self) -> None:
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "model-comparison.py",
+                "reputation_conversation",
+                "latent_network",
+            ],
+        ):
+            args = model_comparison.parse_args()
+
+        self.assertEqual(args.cpus, 1)
 
     def test_fits_offline_from_pre_simulated_data(self) -> None:
         class Approximator:

@@ -28,6 +28,10 @@ from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
 from models import resolve_model
+from scripts.parallel import (
+    sample_model_comparison_in_processes,
+    validate_cpus,
+)
 from visualization.diagnostics import plot_model_probabilities
 
 
@@ -253,6 +257,7 @@ def run_model_comparison(
     diagnostics_path: Path | None = None,
     observation_batch_size: int = 1_024,
     seed: int = 42,
+    cpus: int = 1,
 ) -> tuple[dict[str, Any], dict[str, float]]:
     """Train a classifier and compare models on an observed dataset."""
 
@@ -264,6 +269,7 @@ def run_model_comparison(
         raise ValueError("batch_size must be positive")
     if diagnostic_datasets < 0:
         raise ValueError("diagnostic_datasets must be non-negative")
+    validate_cpus(cpus)
 
     models = resolve_models(model_names)
     dataset = models[0].dataset
@@ -283,18 +289,32 @@ def run_model_comparison(
         desc="Training simulations",
         unit="run",
     ) as progress:
-        approximator, training_simulator = make_model_comparison(
-            models,
-            summaries,
-            seed=training_simulator_seed,
-            context=context,
-            progress=progress.update,
-        )
-        training_data = sample_model_comparison(
-            training_simulator,
-            num_simulations=num_simulations,
-            seed=_seed_integer(training_selection_seed),
-        )
+        if cpus == 1:
+            approximator, training_simulator = make_model_comparison(
+                models,
+                summaries,
+                seed=training_simulator_seed,
+                context=context,
+                progress=progress.update,
+            )
+            training_data = sample_model_comparison(
+                training_simulator,
+                num_simulations=num_simulations,
+                seed=_seed_integer(training_selection_seed),
+            )
+        else:
+            approximator = make_model_comparison_approximator(
+                models,
+                summaries,
+            )
+            training_data = sample_model_comparison_in_processes(
+                names,
+                runs=num_simulations,
+                simulator_seed=training_simulator_seed,
+                selection_seed=training_selection_seed,
+                cpus=cpus,
+                progress=progress.update,
+            )
     fit_comparison_offline(
         approximator,
         training_data,
@@ -422,6 +442,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
+        "--cpus",
+        type=int,
+        default=1,
+        help="worker processes for offline simulations (default: 1)",
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="also open the plots in windows",
@@ -448,6 +474,7 @@ def main() -> None:
         diagnostics_path=args.diagnostics_dir,
         observation_batch_size=args.observation_batch_size,
         seed=args.seed,
+        cpus=args.cpus,
     )
     print(f"Saved model comparison to {output.resolve()}")
     for name, probability in probabilities.items():
