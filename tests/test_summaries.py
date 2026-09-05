@@ -11,16 +11,15 @@ sys.modules.setdefault("pymc", ModuleType("pymc"))
 
 from base.model import INTERVAL_SECONDS
 from base.summaries import (
-    HOUR_SECONDS,
     SUMMARY_BUILDERS,
+    compute_summaries,
     contact_time_coefficient_of_variation,
     cumulative_network_assortativity,
+    cumulative_network_average_path_length,
     cumulative_network_clustering,
     cumulative_network_connectivity,
-    cumulative_network_giant_component,
+    cumulative_network_degree_coefficient_of_variation,
     integrated_contact_autocorrelation_time,
-    lag_one_contact_autocorrelation,
-    lag_one_hourly_contact_autocorrelation,
     make_summaries,
     mean_contact_run_duration,
     mean_contacts_per_bin,
@@ -52,7 +51,7 @@ class TemporalSummaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_summaries(n_agents=4, n_steps=0)
 
-    def test_scalar_activity_summaries_include_empty_bins(self) -> None:
+    def test_mean_contacts_includes_empty_bins(self) -> None:
         data = contacts(
             [
                 INTERVAL_SECONDS,
@@ -67,84 +66,8 @@ class TemporalSummaryTests(unittest.TestCase):
             start=INTERVAL_SECONDS,
             end=4 * INTERVAL_SECONDS,
         )(data)
-        autocorrelation = lag_one_contact_autocorrelation(
-            start=INTERVAL_SECONDS,
-            end=4 * INTERVAL_SECONDS,
-        )(data)
 
         self.assertAlmostEqual(mean, np.mean([2, 0, 1, 0]))
-        self.assertAlmostEqual(
-            autocorrelation,
-            np.corrcoef([2, 0, 1], [0, 1, 0])[0, 1],
-        )
-
-    def test_hourly_autocorrelation_is_hand_computed(self) -> None:
-        data = contacts(
-            [
-                INTERVAL_SECONDS,
-                2 * INTERVAL_SECONDS,
-                3 * INTERVAL_SECONDS,
-                INTERVAL_SECONDS + 2 * HOUR_SECONDS,
-            ],
-            [0, 1, 0, 0],
-            [1, 2, 2, 1],
-        )
-        leftover = contacts(
-            [
-                *data["t"].tolist(),
-                INTERVAL_SECONDS + 3 * HOUR_SECONDS,
-            ],
-            [*data["i"].tolist(), 1],
-            [*data["j"].tolist(), 2],
-        )
-        bounds = dict(
-            start=INTERVAL_SECONDS,
-            end=INTERVAL_SECONDS + 3 * HOUR_SECONDS - INTERVAL_SECONDS,
-        )
-        leftover_bounds = dict(
-            start=INTERVAL_SECONDS,
-            end=INTERVAL_SECONDS + 3 * HOUR_SECONDS + 10 * INTERVAL_SECONDS,
-        )
-        expected = float(np.corrcoef([3, 0], [0, 1])[0, 1])
-
-        self.assertAlmostEqual(
-            lag_one_hourly_contact_autocorrelation(**bounds)(data),
-            expected,
-        )
-        self.assertAlmostEqual(
-            lag_one_hourly_contact_autocorrelation(**leftover_bounds)(
-                leftover
-            ),
-            expected,
-        )
-        result = lag_one_hourly_contact_autocorrelation(**bounds)(data)
-        self.assertEqual(np.asarray(result).shape, ())
-        self.assertTrue(np.issubdtype(np.asarray(result).dtype, np.floating))
-
-    def test_hourly_autocorrelation_ignores_row_order(self) -> None:
-        data = contacts(
-            [
-                INTERVAL_SECONDS,
-                INTERVAL_SECONDS + HOUR_SECONDS,
-                INTERVAL_SECONDS + 2 * HOUR_SECONDS,
-            ],
-            [0, 1, 0],
-            [1, 2, 2],
-        )
-        reordered = {
-            "t": data["t"][::-1],
-            "i": data["j"][::-1],
-            "j": data["i"][::-1],
-        }
-        bounds = dict(
-            start=INTERVAL_SECONDS,
-            end=3 * HOUR_SECONDS,
-        )
-
-        self.assertEqual(
-            lag_one_hourly_contact_autocorrelation(**bounds)(data),
-            lag_one_hourly_contact_autocorrelation(**bounds)(reordered),
-        )
 
     def test_integrated_autocorrelation_time_is_hand_computed(self) -> None:
         data = contacts(
@@ -186,8 +109,6 @@ class TemporalSummaryTests(unittest.TestCase):
 
         for factory in (
             mean_contacts_per_bin,
-            lag_one_contact_autocorrelation,
-            lag_one_hourly_contact_autocorrelation,
             integrated_contact_autocorrelation_time,
             mean_contact_run_duration,
             mean_pair_contact_duration,
@@ -253,8 +174,6 @@ class TemporalSummaryTests(unittest.TestCase):
     def test_bounds_must_be_aligned(self) -> None:
         for factory in (
             mean_contacts_per_bin,
-            lag_one_contact_autocorrelation,
-            lag_one_hourly_contact_autocorrelation,
             integrated_contact_autocorrelation_time,
             mean_contact_run_duration,
             mean_pair_contact_duration,
@@ -269,24 +188,6 @@ class TemporalSummaryTests(unittest.TestCase):
                     start=4 * INTERVAL_SECONDS,
                     end=3 * INTERVAL_SECONDS,
                 )
-        with self.assertRaises(ValueError):
-            lag_one_contact_autocorrelation(
-                start=INTERVAL_SECONDS,
-                end=3 * HOUR_SECONDS,
-                bin_seconds=INTERVAL_SECONDS // 2,
-            )
-        with self.assertRaises(ValueError):
-            lag_one_contact_autocorrelation(
-                start=INTERVAL_SECONDS,
-                end=3 * HOUR_SECONDS,
-                bin_seconds=90,
-            )
-        hourly = lag_one_hourly_contact_autocorrelation(
-            start=INTERVAL_SECONDS,
-            end=3 * INTERVAL_SECONDS,
-        )
-        with self.assertRaises(ValueError):
-            hourly(contacts([4 * INTERVAL_SECONDS], [0], [1]))
         iact = integrated_contact_autocorrelation_time(
             start=INTERVAL_SECONDS,
             end=3 * INTERVAL_SECONDS,
@@ -385,12 +286,31 @@ class NetworkSummaryTests(unittest.TestCase):
         connectivity = cumulative_network_connectivity(self.agent_ids)
         clustering = cumulative_network_clustering(self.agent_ids)
         assortativity = cumulative_network_assortativity(self.agent_ids)
-        giant = cumulative_network_giant_component(self.agent_ids)
+        path_length = cumulative_network_average_path_length(self.agent_ids)
+        degree_cv = cumulative_network_degree_coefficient_of_variation(
+            self.agent_ids
+        )
 
         self.assertAlmostEqual(connectivity(self.data), 0.4)
         self.assertAlmostEqual(clustering(self.data), 7.0 / 15.0)
         self.assertAlmostEqual(assortativity(self.data), -5.0 / 7.0)
-        self.assertAlmostEqual(giant(self.data), 4.0 / 5.0)
+        self.assertAlmostEqual(path_length(self.data), 4.0 / 3.0)
+        self.assertAlmostEqual(
+            degree_cv(self.data),
+            float(np.std([2, 2, 3, 1, 0]) / np.mean([2, 2, 3, 1, 0])),
+        )
+        batched = compute_summaries(
+            self.data,
+            make_summaries(n_agents=5, n_steps=5),
+        )
+        self.assertAlmostEqual(
+            float(batched["cumulative_network_average_path_length"][0]),
+            4.0 / 3.0,
+        )
+        self.assertAlmostEqual(
+            float(batched["cumulative_network_degree_coefficient_of_variation"][0]),
+            float(np.std([2, 2, 3, 1, 0]) / np.mean([2, 2, 3, 1, 0])),
+        )
 
     def test_empty_network_has_zero_summaries(self) -> None:
         empty = contacts([], [], [])
@@ -399,16 +319,13 @@ class NetworkSummaryTests(unittest.TestCase):
             cumulative_network_connectivity,
             cumulative_network_clustering,
             cumulative_network_assortativity,
+            cumulative_network_average_path_length,
+            cumulative_network_degree_coefficient_of_variation,
         ):
             result = factory(self.agent_ids)(empty)
             self.assertEqual(result, 0.0)
             self.assertEqual(np.asarray(result).shape, ())
             self.assertTrue(np.issubdtype(np.asarray(result).dtype, np.floating))
-
-        giant = cumulative_network_giant_component(self.agent_ids)(empty)
-        self.assertAlmostEqual(giant, 1.0 / len(self.agent_ids))
-        self.assertEqual(np.asarray(giant).shape, ())
-        self.assertTrue(np.issubdtype(np.asarray(giant).dtype, np.floating))
 
     def test_assortativity_is_zero_without_degree_variation(self) -> None:
         triangle = contacts(
@@ -424,6 +341,12 @@ class NetworkSummaryTests(unittest.TestCase):
         result = cumulative_network_assortativity([0, 1, 2])(triangle)
 
         self.assertEqual(result, 0.0)
+        self.assertEqual(
+            cumulative_network_degree_coefficient_of_variation([0, 1, 2])(
+                triangle
+            ),
+            0.0,
+        )
 
     def test_statistics_ignore_row_order_and_agent_labels(self) -> None:
         order = np.asarray([4, 2, 0, 3, 1])
@@ -447,7 +370,8 @@ class NetworkSummaryTests(unittest.TestCase):
             cumulative_network_connectivity,
             cumulative_network_clustering,
             cumulative_network_assortativity,
-            cumulative_network_giant_component,
+            cumulative_network_average_path_length,
+            cumulative_network_degree_coefficient_of_variation,
         ):
             expected = factory(self.agent_ids)(self.data)
             self.assertEqual(factory(self.agent_ids)(reordered), expected)
@@ -461,7 +385,8 @@ class NetworkSummaryTests(unittest.TestCase):
             cumulative_network_connectivity,
             cumulative_network_clustering,
             cumulative_network_assortativity,
-            cumulative_network_giant_component,
+            cumulative_network_average_path_length,
+            cumulative_network_degree_coefficient_of_variation,
         ):
             with self.assertRaisesRegex(ValueError, "at least two unique"):
                 factory([0])
@@ -470,6 +395,10 @@ class NetworkSummaryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown agent"):
                 factory([0, 1])(
                     contacts([INTERVAL_SECONDS], [0], [2])
+                )
+            with self.assertRaisesRegex(ValueError, "self-contacts"):
+                factory([0, 1])(
+                    contacts([INTERVAL_SECONDS], [0], [0])
                 )
 
 

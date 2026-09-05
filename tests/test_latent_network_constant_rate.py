@@ -13,18 +13,10 @@ sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
 from base.model import INTERVAL_SECONDS, validate_contacts
 from models import CONTACT_MODEL_REGISTRY, MODEL_REGISTRY
-from models.contacts import LatentNetworkModel
+from models.contacts import LatentNetworkConstantRateModel
 from models.contacts.latent_network import (
-    GP_LOG_SIGMA,
-    LENGTHSCALE_MEAN_MINUTES,
-    MEAN_CLIP,
     PARETO_ALPHA,
     PARETO_MINIMUM,
-    affinity_means,
-    draw_affinities,
-    draw_log_ou_path,
-    draw_weighted_indices,
-    pair_product_sum,
 )
 
 
@@ -64,10 +56,6 @@ class FakePyMC:
         return cls._add("Beta", name, **kwargs)
 
     @classmethod
-    def Exponential(cls, name: str, **kwargs: object) -> object:
-        return cls._add("Exponential", name, **kwargs)
-
-    @classmethod
     def Pareto(cls, name: str, **kwargs: object) -> object:
         return cls._add("Pareto", name, **kwargs)
 
@@ -75,7 +63,6 @@ class FakePyMC:
 PARAMETERS = {
     "group_rate": np.asarray(2.0),
     "start_rate": np.asarray(0.5),
-    "lengthscale": np.asarray(1.0e9),
     "mean_duration_minutes": np.asarray(np.inf),
     "activity_sigma": np.asarray(1.0),
     "mu_within": np.asarray(1.0),
@@ -92,11 +79,6 @@ class AlwaysFirstRng:
 
     def lognormal(self, mean, sigma, size=None):
         return np.ones(size)
-
-    def normal(self, loc=0.0, scale=1.0, size=None):
-        if size is None:
-            return 0.0
-        return np.zeros(size)
 
     def random(self, size=None):
         if size is None:
@@ -115,18 +97,24 @@ class AlwaysFirstRng:
         return np.full(size, value)
 
 
-class LatentNetworkTests(unittest.TestCase):
+class LatentNetworkConstantRateTests(unittest.TestCase):
     def test_model_is_registered_by_stable_name(self) -> None:
         self.assertIs(
-            CONTACT_MODEL_REGISTRY["latent_network"],
-            LatentNetworkModel,
+            CONTACT_MODEL_REGISTRY["latent_network_constant_rate"],
+            LatentNetworkConstantRateModel,
         )
-        self.assertIs(MODEL_REGISTRY["latent_network"], LatentNetworkModel)
+        self.assertIs(
+            MODEL_REGISTRY["latent_network_constant_rate"],
+            LatentNetworkConstantRateModel,
+        )
 
     def test_prior_and_inference_variables(self) -> None:
-        model = LatentNetworkModel()
+        model = LatentNetworkConstantRateModel()
 
-        with patch("models.contacts.latent_network.pm", FakePyMC):
+        with patch(
+            "models.contacts.latent_network_constant_rate.pm",
+            FakePyMC,
+        ):
             prior = model.build_prior(n_agents=6, n_steps=20)
 
         self.assertEqual(
@@ -134,7 +122,6 @@ class LatentNetworkTests(unittest.TestCase):
             [
                 ("LogNormal", "group_rate"),
                 ("LogNormal", "start_rate"),
-                ("Exponential", "lengthscale"),
                 ("LogNormal", "mean_duration_minutes"),
                 ("HalfNormal", "activity_sigma"),
                 ("Beta", "mu_within"),
@@ -147,7 +134,6 @@ class LatentNetworkTests(unittest.TestCase):
             (
                 "group_rate",
                 "start_rate",
-                "lengthscale",
                 "mean_duration_minutes",
                 "activity_sigma",
                 "mu_within",
@@ -155,72 +141,25 @@ class LatentNetworkTests(unittest.TestCase):
                 "eta",
             ),
         )
-        self.assertEqual(
-            prior.variables[2][2],
-            {"lam": 1.0 / LENGTHSCALE_MEAN_MINUTES},
+        self.assertNotIn(
+            "lengthscale",
+            [name for _, name, _ in prior.variables],
         )
         self.assertEqual(
-            prior.variables[5][2],
+            prior.variables[4][2],
             {"alpha": 2.0, "beta": 5.0},
         )
         self.assertEqual(
-            prior.variables[6][2],
+            prior.variables[5][2],
             {"alpha": 1.0, "beta": 20.0},
         )
         self.assertEqual(
-            prior.variables[7][2],
+            prior.variables[6][2],
             {"alpha": PARETO_ALPHA, "m": PARETO_MINIMUM},
         )
 
-    def test_affinity_means_use_mu_ratio_on_cross_group_pairs(self) -> None:
-        first, second, means = affinity_means(
-            np.asarray([0, 0, 1, 1]),
-            0.8,
-            0.25,
-        )
-
-        np.testing.assert_array_equal(first, [0, 0, 0, 1, 1, 2])
-        np.testing.assert_array_equal(second, [1, 2, 3, 2, 3, 3])
-        np.testing.assert_allclose(
-            means,
-            [0.8, 0.2, 0.2, 0.2, 0.2, 0.8],
-        )
-
-    def test_zero_means_are_clipped_away_from_the_boundary(self) -> None:
-        _, _, means = affinity_means(np.asarray([0, 1]), 0.0, 0.0)
-        np.testing.assert_allclose(means, [MEAN_CLIP])
-
-    def test_draw_affinities_match_beta_mean_when_scripted(self) -> None:
-        class MeanRng:
-            def beta(self, a, b):
-                return np.asarray(a) / (np.asarray(a) + np.asarray(b))
-
-        means = np.asarray([0.8, 0.2])
-        np.testing.assert_allclose(
-            draw_affinities(MeanRng(), means, 10.0),
-            means,
-        )
-
-    def test_weighted_index_draws_follow_the_cdf(self) -> None:
-        class ScriptedRng:
-            def random(self, size=None):
-                return np.asarray([0.0, 0.49, 0.51])
-
-        np.testing.assert_array_equal(
-            draw_weighted_indices(ScriptedRng(), [1.0, 1.0], 3),
-            [0, 0, 1],
-        )
-
-    def test_pair_product_sum_is_hand_computed(self) -> None:
-        activities = np.asarray([0.5, 1.0, 1.5, 2.0])
-        first, second = np.triu_indices(4, k=1)
-        self.assertAlmostEqual(
-            pair_product_sum(activities),
-            float(np.sum(activities[first] * activities[second])),
-        )
-
     def test_simulation_is_seeded_and_schema_compatible(self) -> None:
-        model = LatentNetworkModel()
+        model = LatentNetworkConstantRateModel()
 
         first = model.simulate(
             PARAMETERS,
@@ -241,7 +180,7 @@ class LatentNetworkTests(unittest.TestCase):
         self.assertTrue(np.all(first["i"] < first["j"]))
 
     def test_occupancy_prefers_within_group_pairs(self) -> None:
-        contacts = LatentNetworkModel().simulate(
+        contacts = LatentNetworkConstantRateModel().simulate(
             PARAMETERS,
             AlwaysFirstRng(),
             n_agents=4,
@@ -253,7 +192,7 @@ class LatentNetworkTests(unittest.TestCase):
         self.assertTrue(pairs <= {(0, 1), (2, 3)})
 
     def test_zero_affinity_emits_no_contacts(self) -> None:
-        contacts = LatentNetworkModel().simulate(
+        contacts = LatentNetworkConstantRateModel().simulate(
             {**PARAMETERS, "mu_within": np.asarray(0.0)},
             AlwaysFirstRng(),
             n_agents=3,
@@ -278,7 +217,7 @@ class LatentNetworkTests(unittest.TestCase):
                     return 0.0
                 return np.zeros(size)
 
-        contacts = LatentNetworkModel().simulate(
+        contacts = LatentNetworkConstantRateModel().simulate(
             {**PARAMETERS, "start_rate": np.asarray(1.0e9)},
             HugePoissonRng(),
             n_agents=n_agents,
@@ -287,86 +226,47 @@ class LatentNetworkTests(unittest.TestCase):
         validated = validate_contacts(contacts)
         self.assertLessEqual(len(validated["t"]), n_pairs)
 
-    def test_ou_path_matches_hand_computed_recurrence(self) -> None:
-        class ScriptedRng:
-            def normal(self, loc=0.0, scale=1.0, size=None):
-                if size is None:
-                    return loc + scale * 0.5
-                return loc + scale * np.asarray([0.25, -0.5])
-
-        lengthscale = 2.0
-        sigma = 2.0
-        phi = np.exp(-1.0 / lengthscale)
-        innovation_sd = sigma * np.sqrt(1.0 - phi * phi)
-        expected = np.asarray(
-            [
-                0.5 * sigma,
-                phi * 0.5 * sigma + 0.25 * innovation_sd,
-                0.0,
-            ]
-        )
-        expected[2] = phi * expected[1] + (-0.5) * innovation_sd
-
-        path = draw_log_ou_path(
-            ScriptedRng(),
-            n_steps=3,
-            lengthscale=lengthscale,
-            sigma=sigma,
-        )
-
-        np.testing.assert_allclose(path, expected)
-        self.assertEqual(GP_LOG_SIGMA, 1.0)
-
-    def test_ou_path_is_seeded_and_constant_for_huge_lengthscale(self) -> None:
-        first = draw_log_ou_path(
-            np.random.default_rng(7),
-            n_steps=8,
-            lengthscale=3.0,
-        )
-        second = draw_log_ou_path(
-            np.random.default_rng(7),
-            n_steps=8,
-            lengthscale=3.0,
-        )
-        constant = draw_log_ou_path(
-            np.random.default_rng(7),
-            n_steps=8,
-            lengthscale=np.inf,
-        )
-
-        np.testing.assert_array_equal(first, second)
-        np.testing.assert_allclose(constant, constant[0])
-
-    def test_short_lengthscale_changes_occupancy_starts(self) -> None:
+    def test_constant_rate_restarts_after_the_idle_gap(self) -> None:
         class ThresholdRng(AlwaysFirstRng):
             def random(self, size=None):
                 if size is None:
                     return 0.5
                 return np.full(size, 0.5)
 
-        with patch(
-            "models.contacts.latent_network.draw_log_ou_path",
-            return_value=np.asarray([-20.0, 5.0]),
-        ):
-            contacts = LatentNetworkModel().simulate(
-                {
-                    **PARAMETERS,
-                    "start_rate": np.asarray(1.0),
-                    "lengthscale": np.asarray(1.0),
-                    "mean_duration_minutes": np.asarray(1.0e-9),
-                },
-                ThresholdRng(),
-                n_agents=2,
-                n_steps=2,
-            )
+        contacts = LatentNetworkConstantRateModel().simulate(
+            {
+                **PARAMETERS,
+                "start_rate": np.asarray(1.0),
+                "mean_duration_minutes": np.asarray(1.0e-9),
+            },
+            ThresholdRng(),
+            n_agents=2,
+            n_steps=3,
+        )
 
         validated = validate_contacts(contacts)
-        self.assertEqual(validated["t"].tolist(), [2 * INTERVAL_SECONDS])
-        self.assertEqual(validated["i"].tolist(), [0])
-        self.assertEqual(validated["j"].tolist(), [1])
+        self.assertEqual(
+            validated["t"].tolist(),
+            [INTERVAL_SECONDS, 3 * INTERVAL_SECONDS],
+        )
+        self.assertEqual(validated["i"].tolist(), [0, 0])
+        self.assertEqual(validated["j"].tolist(), [1, 1])
+
+    def test_simulate_does_not_draw_a_gaussian_process(self) -> None:
+        class NoNormalRng(AlwaysFirstRng):
+            def normal(self, loc=0.0, scale=1.0, size=None):
+                raise AssertionError("OU path must not be drawn")
+
+        contacts = LatentNetworkConstantRateModel().simulate(
+            PARAMETERS,
+            NoNormalRng(),
+            n_agents=4,
+            n_steps=3,
+        )
+        validate_contacts(contacts)
 
     def test_large_simulation_is_seeded(self) -> None:
-        model = LatentNetworkModel()
+        model = LatentNetworkConstantRateModel()
         parameters = {
             **PARAMETERS,
             "start_rate": np.asarray(0.001),

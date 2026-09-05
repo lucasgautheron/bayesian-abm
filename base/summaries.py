@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from itertools import combinations
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -11,12 +12,34 @@ from numpy.typing import ArrayLike, NDArray
 
 from base.model import ContactData, INTERVAL_SECONDS, validate_contacts
 
-HOUR_SECONDS = 60 * INTERVAL_SECONDS
-
-
 SummaryFunction = Callable[[ContactData], ArrayLike]
 Summaries = Mapping[str, SummaryFunction]
 SummaryBuilder = Callable[[int, int], SummaryFunction]
+
+
+@dataclass
+class _SummaryCache:
+    contacts: ContactData
+    adjacency: dict[bytes, NDArray[np.bool_]] = field(default_factory=dict)
+    occupied: dict[tuple[int, int], NDArray[np.int64]] = field(
+        default_factory=dict
+    )
+    bins: dict[tuple[int, int, int, int], NDArray[np.int64]] = field(
+        default_factory=dict
+    )
+
+
+_SUMMARY_CACHE: ContextVar[_SummaryCache | None] = ContextVar(
+    "_SUMMARY_CACHE",
+    default=None,
+)
+
+
+def _cache_for(contacts: Mapping[str, ArrayLike]) -> _SummaryCache | None:
+    cache = _SUMMARY_CACHE.get()
+    if cache is not None and cache.contacts is contacts:
+        return cache
+    return None
 
 
 def compute_scalar_summaries(
@@ -46,10 +69,12 @@ def compute_summaries(
 ) -> dict[str, NDArray[Any]]:
     """Apply shared summary functions to native contact records."""
 
-    return compute_scalar_summaries(
-        validate_contacts(contacts),
-        summaries,
-    )
+    data = validate_contacts(contacts)
+    token = _SUMMARY_CACHE.set(_SummaryCache(contacts=data))
+    try:
+        return compute_scalar_summaries(data, summaries)
+    finally:
+        _SUMMARY_CACHE.reset(token)
 
 
 def _agent_sequence(agent_ids: Sequence[int]) -> NDArray:
@@ -65,25 +90,132 @@ def _agent_sequence(agent_ids: Sequence[int]) -> NDArray:
     return agents
 
 
-def _cumulative_neighbors(
+def _agent_positions(
+    endpoint_ids: NDArray,
+    agents: NDArray,
+) -> NDArray[np.intp]:
+    """Map contact endpoints onto agent-row indices."""
+
+    ids = np.asarray(endpoint_ids)
+    if ids.size == 0:
+        return np.empty(0, dtype=np.intp)
+    n_agents = int(agents.size)
+    if (
+        agents[0] == 0
+        and agents[-1] == n_agents - 1
+        and np.array_equal(agents, np.arange(n_agents))
+    ):
+        positions = np.asarray(ids)
+        unknown = (positions < 0) | (positions >= n_agents)
+        if np.any(unknown):
+            raise ValueError(
+                f"contact contains unknown agent ID {int(positions[unknown][0])}"
+            )
+        return np.asarray(positions, dtype=np.intp)
+    sorted_index = np.argsort(agents, kind="stable")
+    sorted_ids = agents[sorted_index]
+    slots = np.searchsorted(sorted_ids, ids)
+    in_range = slots < n_agents
+    safe_slots = np.where(in_range, slots, 0)
+    matched = in_range & (sorted_ids[safe_slots] == ids)
+    if not np.all(matched):
+        raise ValueError(
+            f"contact contains unknown agent ID {int(ids[~matched][0])}"
+        )
+    return np.asarray(sorted_index[slots], dtype=np.intp)
+
+
+def _adjacency_matrix(
     contacts: ContactData,
     agents: NDArray,
-) -> list[set[int]]:
-    positions = {int(agent): index for index, agent in enumerate(agents)}
-    neighbors = [set() for _ in agents]
-    for first, second in zip(contacts["i"], contacts["j"]):
-        try:
-            first_position = positions[int(first)]
-            second_position = positions[int(second)]
-        except KeyError as exc:
-            raise ValueError(
-                f"contact contains unknown agent ID {exc.args[0]}"
-            ) from exc
-        if first_position == second_position:
+) -> NDArray[np.bool_]:
+    """Return the undirected union graph as a symmetric adjacency matrix."""
+
+    cache = _cache_for(contacts)
+    agent_key = np.asarray(agents).tobytes()
+    if cache is not None:
+        cached = cache.adjacency.get(agent_key)
+        if cached is not None:
+            return cached
+
+    n_agents = int(agents.size)
+    adjacency = np.zeros((n_agents, n_agents), dtype=np.bool_)
+    first = _agent_positions(contacts["i"], agents)
+    second = _agent_positions(contacts["j"], agents)
+    if first.size:
+        if np.any(first == second):
             raise ValueError("self-contacts are not valid network edges")
-        neighbors[first_position].add(second_position)
-        neighbors[second_position].add(first_position)
-    return neighbors
+        adjacency[first, second] = True
+        adjacency[second, first] = True
+    if cache is not None:
+        cache.adjacency[agent_key] = adjacency
+    return adjacency
+
+
+def _mean_local_clustering(adjacency: NDArray[np.bool_]) -> float:
+    """Return mean Watts–Strogatz local clustering from an adjacency matrix."""
+
+    weights = adjacency.astype(np.float64, copy=False)
+    degrees = weights.sum(axis=1)
+    triangles = np.sum((weights @ weights) * weights, axis=1)
+    coefficients = np.zeros(degrees.size, dtype=np.float64)
+    connected = degrees >= 2.0
+    coefficients[connected] = triangles[connected] / (
+        degrees[connected] * (degrees[connected] - 1.0)
+    )
+    return float(coefficients.mean())
+
+
+def _largest_component(adjacency: NDArray[np.bool_]) -> list[int]:
+    """Return node indices in the largest connected component."""
+
+    n_agents = int(adjacency.shape[0])
+    seen = np.zeros(n_agents, dtype=np.bool_)
+    largest: list[int] = []
+    for start in range(n_agents):
+        if seen[start]:
+            continue
+        stack = [start]
+        seen[start] = True
+        component = [start]
+        while stack:
+            node = stack.pop()
+            for adjacent in np.flatnonzero(adjacency[node]):
+                if not seen[adjacent]:
+                    seen[adjacent] = True
+                    stack.append(int(adjacent))
+                    component.append(int(adjacent))
+        if len(component) > len(largest):
+            largest = component
+    return largest
+
+
+def _mean_shortest_path_length(adjacency: NDArray[np.bool_]) -> float:
+    """Return mean geodesic length inside the largest component."""
+
+    nodes = _largest_component(adjacency)
+    n = len(nodes)
+    if n < 2:
+        return 0.0
+    index = np.asarray(nodes, dtype=np.intp)
+    subgraph = np.ascontiguousarray(adjacency[np.ix_(index, index)])
+    total = 0.0
+    for start in range(n):
+        seen = np.zeros(n, dtype=np.bool_)
+        layer = np.zeros(n, dtype=np.bool_)
+        layer[start] = True
+        seen[start] = True
+        distance = 0
+        while True:
+            nxt = subgraph[layer].any(axis=0)
+            nxt &= ~seen
+            if not nxt.any():
+                break
+            distance += 1
+            total += distance * int(nxt.sum())
+            seen |= nxt
+            layer = nxt
+    return total / (n * (n - 1))
 
 
 def _validate_bin_range(
@@ -117,14 +249,24 @@ def _contacts_per_bin(
     bin_count: int,
     bin_seconds: int = INTERVAL_SECONDS,
 ) -> NDArray[np.int64]:
+    cache = _cache_for(contacts)
+    key = (start, end, bin_count, bin_seconds)
+    if cache is not None:
+        cached = cache.bins.get(key)
+        if cached is not None:
+            return cached
     times = np.asarray(contacts["t"])
     if np.any(times < start) or np.any(times > end):
         raise ValueError("contact times fall outside the summary range")
     if bin_count < 1:
-        return np.zeros(0, dtype=np.int64)
-    indices = (times - start) // bin_seconds
-    in_range = indices < bin_count
-    return np.bincount(indices[in_range], minlength=bin_count)
+        counts = np.zeros(0, dtype=np.int64)
+    else:
+        indices = (times - start) // bin_seconds
+        in_range = indices < bin_count
+        counts = np.bincount(indices[in_range], minlength=bin_count)
+    if cache is not None:
+        cache.bins[key] = counts
+    return counts
 
 
 def mean_contacts_per_bin(start: int, end: int) -> SummaryFunction:
@@ -142,55 +284,6 @@ def mean_contacts_per_bin(start: int, end: int) -> SummaryFunction:
         return float(counts.mean())
 
     return summary
-
-
-def lag_one_contact_autocorrelation(
-    start: int,
-    end: int,
-    *,
-    bin_seconds: int = INTERVAL_SECONDS,
-) -> SummaryFunction:
-    """Return lag-one correlation of contact counts in fixed time bins."""
-
-    bin_count = _validate_bin_range(start, end, bin_seconds)
-
-    def summary(contacts: ContactData) -> float:
-        counts = _contacts_per_bin(
-            contacts,
-            start=start,
-            end=end,
-            bin_count=bin_count,
-            bin_seconds=bin_seconds,
-        ).astype(np.float64)
-        if len(counts) < 2:
-            return 0.0
-        first = counts[:-1] - counts[:-1].mean()
-        second = counts[1:] - counts[1:].mean()
-        denominator = np.linalg.norm(first) * np.linalg.norm(second)
-        return (
-            0.0
-            if np.isclose(denominator, 0.0)
-            else float(np.dot(first, second) / denominator)
-        )
-
-    return summary
-
-
-def lag_one_hourly_contact_autocorrelation(
-    start: int,
-    end: int,
-) -> SummaryFunction:
-    """Return lag-one correlation of hourly contact counts.
-
-    Incomplete trailing hours are dropped so every bin covers the same
-    duration.
-    """
-
-    return lag_one_contact_autocorrelation(
-        start,
-        end,
-        bin_seconds=HOUR_SECONDS,
-    )
 
 
 def integrated_contact_autocorrelation_time(
@@ -238,17 +331,38 @@ def _occupied_pair_bins(
 ) -> NDArray[np.int64]:
     """Return unique ``(i, j, bin)`` rows with ``i < j``."""
 
+    cache = _cache_for(contacts)
+    key = (start, end)
+    if cache is not None:
+        cached = cache.occupied.get(key)
+        if cached is not None:
+            return cached
     times = np.asarray(contacts["t"])
     if np.any(times < start) or np.any(times > end):
         raise ValueError("contact times fall outside the summary range")
-    first = np.minimum(contacts["i"], contacts["j"]).astype(np.int64)
-    second = np.maximum(contacts["i"], contacts["j"]).astype(np.int64)
+    first = np.minimum(contacts["i"], contacts["j"]).astype(np.int64, copy=False)
+    second = np.maximum(contacts["i"], contacts["j"]).astype(np.int64, copy=False)
     if np.any(first == second):
         raise ValueError("self-contacts are not valid network edges")
     bins = (times - start) // INTERVAL_SECONDS
     if not first.size:
-        return np.empty((0, 3), dtype=np.int64)
-    return np.unique(np.stack((first, second, bins), axis=1), axis=0)
+        occupied = np.empty((0, 3), dtype=np.int64)
+    else:
+        order = np.lexsort((bins, second, first))
+        first = first[order]
+        second = second[order]
+        bins = bins[order]
+        keep = np.empty(first.size, dtype=np.bool_)
+        keep[0] = True
+        keep[1:] = (
+            (first[1:] != first[:-1])
+            | (second[1:] != second[:-1])
+            | (bins[1:] != bins[:-1])
+        )
+        occupied = np.stack((first[keep], second[keep], bins[keep]), axis=1)
+    if cache is not None:
+        cache.occupied[key] = occupied
+    return occupied
 
 
 def mean_contact_run_duration(start: int, end: int) -> SummaryFunction:
@@ -283,7 +397,13 @@ def mean_pair_contact_duration(start: int, end: int) -> SummaryFunction:
         occupied = _occupied_pair_bins(contacts, start=start, end=end)
         if not occupied.size:
             return 0.0
-        _, counts = np.unique(occupied[:, :2], axis=0, return_counts=True)
+        new_pair = np.empty(len(occupied), dtype=np.bool_)
+        new_pair[0] = True
+        new_pair[1:] = (occupied[1:, 0] != occupied[:-1, 0]) | (
+            occupied[1:, 1] != occupied[:-1, 1]
+        )
+        starts = np.flatnonzero(new_pair)
+        counts = np.diff(np.append(starts, len(occupied)))
         return float(counts.mean())
 
     return summary
@@ -295,53 +415,15 @@ def contact_time_coefficient_of_variation(
     """Return relative heterogeneity in cumulative agent contact time."""
 
     agents = _agent_sequence(agent_ids)
-    positions = {int(agent): index for index, agent in enumerate(agents)}
 
     def summary(contacts: ContactData) -> float:
+        first = _agent_positions(contacts["i"], agents)
+        second = _agent_positions(contacts["j"], agents)
         totals = np.zeros(len(agents), dtype=np.float64)
-        endpoints = np.concatenate((contacts["i"], contacts["j"]))
-        try:
-            endpoint_positions = np.fromiter(
-                (positions[int(agent)] for agent in endpoints),
-                dtype=np.int64,
-                count=len(endpoints),
-            )
-        except KeyError as exc:
-            raise ValueError(
-                f"contact contains unknown agent ID {exc.args[0]}"
-            ) from exc
-        np.add.at(totals, endpoint_positions, INTERVAL_SECONDS)
+        np.add.at(totals, first, INTERVAL_SECONDS)
+        np.add.at(totals, second, INTERVAL_SECONDS)
         mean = totals.mean()
         return 0.0 if np.isclose(mean, 0.0) else float(totals.std() / mean)
-
-    return summary
-
-def cumulative_network_giant_component(
-    agent_ids: Sequence[int],
-) -> SummaryFunction:
-    """Return the fraction of agents in the largest connected component."""
-
-    agents = _agent_sequence(agent_ids)
-
-    def summary(contacts: ContactData) -> float:
-        neighbors = _cumulative_neighbors(contacts, agents)
-        seen = [False] * len(agents)
-        giant = 0
-        for start in range(len(agents)):
-            if seen[start]:
-                continue
-            size = 0
-            stack = [start]
-            seen[start] = True
-            while stack:
-                node = stack.pop()
-                size += 1
-                for adjacent in neighbors[node]:
-                    if not seen[adjacent]:
-                        seen[adjacent] = True
-                        stack.append(adjacent)
-            giant = max(giant, size)
-        return giant / len(agents)
 
     return summary
 
@@ -354,9 +436,9 @@ def cumulative_network_connectivity(
     agents = _agent_sequence(agent_ids)
 
     def summary(contacts: ContactData) -> float:
-        neighbors = _cumulative_neighbors(contacts, agents)
-        degree_sum = sum(len(adjacent) for adjacent in neighbors)
-        return degree_sum / (len(agents) * (len(agents) - 1))
+        adjacency = _adjacency_matrix(contacts, agents)
+        n_agents = int(adjacency.shape[0])
+        return float(adjacency.sum()) / (n_agents * (n_agents - 1))
 
     return summary
 
@@ -369,20 +451,7 @@ def cumulative_network_clustering(
     agents = _agent_sequence(agent_ids)
 
     def summary(contacts: ContactData) -> float:
-        neighbors = _cumulative_neighbors(contacts, agents)
-        coefficients = np.zeros(len(agents), dtype=np.float64)
-        for agent, adjacent in enumerate(neighbors):
-            degree = len(adjacent)
-            if degree < 2:
-                continue
-            neighbor_edges = sum(
-                second in neighbors[first]
-                for first, second in combinations(adjacent, 2)
-            )
-            coefficients[agent] = (
-                2.0 * neighbor_edges / (degree * (degree - 1))
-            )
-        return float(coefficients.mean())
+        return _mean_local_clustering(_adjacency_matrix(contacts, agents))
 
     return summary
 
@@ -399,31 +468,51 @@ def cumulative_network_assortativity(
     agents = _agent_sequence(agent_ids)
 
     def summary(contacts: ContactData) -> float:
-        neighbors = _cumulative_neighbors(contacts, agents)
-        degrees = np.asarray(
-            [len(adjacent) for adjacent in neighbors],
-            dtype=np.float64,
-        )
-        degree_pairs = np.asarray(
-            [
-                (degrees[first], degrees[second])
-                for first, adjacent in enumerate(neighbors)
-                for second in adjacent
-                if first < second
-            ],
-            dtype=np.float64,
-        )
-        if len(degree_pairs) == 0:
+        adjacency = _adjacency_matrix(contacts, agents)
+        degrees = adjacency.sum(axis=1).astype(np.float64)
+        first_index, second_index = np.triu_indices(adjacency.shape[0], k=1)
+        keep = adjacency[first_index, second_index]
+        if not np.any(keep):
             return 0.0
-
-        first, second = degree_pairs.T
-        endpoint_mean = np.mean(np.concatenate((first, second)))
-        covariance = np.mean(first * second) - endpoint_mean**2
-        variance = (
-            np.mean(np.concatenate((first**2, second**2)))
-            - endpoint_mean**2
-        )
+        first = degrees[first_index[keep]]
+        second = degrees[second_index[keep]]
+        endpoints = np.concatenate((first, second))
+        endpoint_mean = float(endpoints.mean())
+        covariance = float(np.mean(first * second) - endpoint_mean**2)
+        variance = float(np.mean(endpoints**2) - endpoint_mean**2)
         return 0.0 if np.isclose(variance, 0.0) else covariance / variance
+
+    return summary
+
+
+def cumulative_network_average_path_length(
+    agent_ids: Sequence[int],
+) -> SummaryFunction:
+    """Return mean shortest-path length in the largest component.
+
+    Isolated nodes and smaller components are ignored. Graphs whose largest
+    component has fewer than two nodes have no pairs and return 0.
+    """
+
+    agents = _agent_sequence(agent_ids)
+
+    def summary(contacts: ContactData) -> float:
+        return _mean_shortest_path_length(_adjacency_matrix(contacts, agents))
+
+    return summary
+
+
+def cumulative_network_degree_coefficient_of_variation(
+    agent_ids: Sequence[int],
+) -> SummaryFunction:
+    """Return the CV of unique-neighbor degrees, including isolates."""
+
+    agents = _agent_sequence(agent_ids)
+
+    def summary(contacts: ContactData) -> float:
+        degrees = _adjacency_matrix(contacts, agents).sum(axis=1)
+        mean = float(degrees.mean())
+        return 0.0 if np.isclose(mean, 0.0) else float(degrees.std() / mean)
 
     return summary
 
@@ -433,26 +522,6 @@ def _build_mean_contacts_per_bin(
     n_steps: int,
 ) -> SummaryFunction:
     return mean_contacts_per_bin(
-        INTERVAL_SECONDS,
-        n_steps * INTERVAL_SECONDS,
-    )
-
-
-def _build_lag_one_contact_autocorrelation(
-    _n_agents: int,
-    n_steps: int,
-) -> SummaryFunction:
-    return lag_one_contact_autocorrelation(
-        INTERVAL_SECONDS,
-        n_steps * INTERVAL_SECONDS,
-    )
-
-
-def _build_lag_one_hourly_contact_autocorrelation(
-    _n_agents: int,
-    n_steps: int,
-) -> SummaryFunction:
-    return lag_one_hourly_contact_autocorrelation(
         INTERVAL_SECONDS,
         n_steps * INTERVAL_SECONDS,
     )
@@ -495,13 +564,6 @@ def _build_contact_time_coefficient_of_variation(
     return contact_time_coefficient_of_variation(range(n_agents))
 
 
-def _build_cumulative_network_giant_component(
-    n_agents: int,
-    _n_steps: int,
-) -> SummaryFunction:
-    return cumulative_network_giant_component(range(n_agents))
-
-
 def _build_cumulative_network_connectivity(
     n_agents: int,
     _n_steps: int,
@@ -523,14 +585,22 @@ def _build_cumulative_network_assortativity(
     return cumulative_network_assortativity(range(n_agents))
 
 
+def _build_cumulative_network_average_path_length(
+    n_agents: int,
+    _n_steps: int,
+) -> SummaryFunction:
+    return cumulative_network_average_path_length(range(n_agents))
+
+
+def _build_cumulative_network_degree_coefficient_of_variation(
+    n_agents: int,
+    _n_steps: int,
+) -> SummaryFunction:
+    return cumulative_network_degree_coefficient_of_variation(range(n_agents))
+
+
 SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
     "mean_contacts_per_bin": _build_mean_contacts_per_bin,
-    "lag_one_contact_autocorrelation": (
-        _build_lag_one_contact_autocorrelation
-    ),
-    "lag_one_hourly_contact_autocorrelation": (
-        _build_lag_one_hourly_contact_autocorrelation
-    ),
     "integrated_contact_autocorrelation_time": (
         _build_integrated_contact_autocorrelation_time
     ),
@@ -539,15 +609,18 @@ SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
     "contact_time_coefficient_of_variation": (
         _build_contact_time_coefficient_of_variation
     ),
-    "cumulative_network_giant_component": (
-        _build_cumulative_network_giant_component
-    ),
     "cumulative_network_connectivity": (
         _build_cumulative_network_connectivity
     ),
     "cumulative_network_clustering": _build_cumulative_network_clustering,
     "cumulative_network_assortativity": (
         _build_cumulative_network_assortativity
+    ),
+    "cumulative_network_average_path_length": (
+        _build_cumulative_network_average_path_length
+    ),
+    "cumulative_network_degree_coefficient_of_variation": (
+        _build_cumulative_network_degree_coefficient_of_variation
     ),
 }
 
@@ -569,7 +642,6 @@ def make_summaries(
 
 
 __all__ = [
-    "HOUR_SECONDS",
     "INTERVAL_SECONDS",
     "SUMMARY_BUILDERS",
     "Summaries",
@@ -579,12 +651,11 @@ __all__ = [
     "compute_summaries",
     "contact_time_coefficient_of_variation",
     "cumulative_network_assortativity",
+    "cumulative_network_average_path_length",
     "cumulative_network_clustering",
     "cumulative_network_connectivity",
-    "cumulative_network_giant_component",
+    "cumulative_network_degree_coefficient_of_variation",
     "integrated_contact_autocorrelation_time",
-    "lag_one_contact_autocorrelation",
-    "lag_one_hourly_contact_autocorrelation",
     "make_summaries",
     "mean_contact_run_duration",
     "mean_contacts_per_bin",

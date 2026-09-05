@@ -4,6 +4,7 @@ from base.model import Model
 
 from .contacts import (
     GroupOccupancyModel,
+    LatentNetworkConstantRateModel,
     LatentNetworkModel,
     ReputationConversationModel,
 )
@@ -65,6 +66,7 @@ __all__ = [
     "CONTACT_MODEL_REGISTRY",
     "GeneralizedSIRModel",
     "GroupOccupancyModel",
+    "LatentNetworkConstantRateModel",
     "LatentNetworkModel",
     "LatentRateModel",
     "LinearInfluenceModel",

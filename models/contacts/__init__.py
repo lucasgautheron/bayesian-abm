@@ -5,12 +5,14 @@ from base.model import Model
 from .base import CONTACT_DATASET, ContactModel
 from .group_occupancy import GroupOccupancyModel
 from .latent_network import LatentNetworkModel
+from .latent_network_constant_rate import LatentNetworkConstantRateModel
 from .reputation import ReputationConversationModel
 
 
 MODEL_CLASSES: tuple[type[Model], ...] = (
     ReputationConversationModel,
     LatentNetworkModel,
+    LatentNetworkConstantRateModel,
     GroupOccupancyModel,
 )
 MODEL_REGISTRY: dict[str, type[Model]] = {
@@ -27,6 +29,7 @@ __all__ = [
     "CONTACT_DATASET",
     "ContactModel",
     "GroupOccupancyModel",
+    "LatentNetworkConstantRateModel",
     "LatentNetworkModel",
     "MODEL_CLASSES",
     "MODEL_REGISTRY",

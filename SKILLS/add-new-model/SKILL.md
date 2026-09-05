@@ -22,7 +22,9 @@ Follow the interfaces in `base/model.py` and the contact-model example in
 5. In Plan mode, resolve every vague, missing, or contradictory part of the
    specification by asking focused questions. Do not infer unspecified
    distributions or stochastic behavior.
-6. Proceed to implementation only after the probabilistic program,
+6. The users are part of a workshop. They may not be totally familiar
+   with Bayesian methods. Please be pedagogical when eliciting choices between priors / distributions.
+7. Proceed to implementation only after the probabilistic program,
    distributions, and inference variables are fully specified and confirmed
    by the user.
 

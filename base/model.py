@@ -421,11 +421,14 @@ class Model(ABC):
         """Build the shared adapter used for model comparison."""
 
         names = list(summaries)
+        keys = [*names, "model_indices"]
         return (
             bf.Adapter()
-            .to_array(include=names)
-            .convert_dtype("float64", "float32", include=names)
+            .to_array(include=keys)
+            .convert_dtype("float64", "float32", include=keys)
+            .concatenate(["model_indices"], into="inference_variables")
             .concatenate(names, into="inference_conditions")
+            .keep(["inference_variables", "inference_conditions"])
         )
 
     @staticmethod

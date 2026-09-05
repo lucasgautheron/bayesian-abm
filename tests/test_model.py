@@ -61,6 +61,10 @@ class FakeAdapter:
         self.operations.append(("concatenate", names, into))
         return self
 
+    def keep(self, keys):
+        self.operations.append(("keep", list(keys)))
+        return self
+
 
 class FakeLambdaSimulator:
     def __init__(self, sample_fn, *, is_batched):
@@ -225,8 +229,23 @@ class ModelTests(unittest.TestCase):
         self.assertIn(
             (
                 "concatenate",
+                ["model_indices"],
+                "inference_variables",
+            ),
+            adapter.operations,
+        )
+        self.assertIn(
+            (
+                "concatenate",
                 ["contact_count", "participating_people"],
                 "inference_conditions",
+            ),
+            adapter.operations,
+        )
+        self.assertIn(
+            (
+                "keep",
+                ["inference_variables", "inference_conditions"],
             ),
             adapter.operations,
         )
