@@ -13,9 +13,8 @@ sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
 from base.model import validate_contacts
 from models import CONTACT_MODEL_REGISTRY, MODEL_REGISTRY
-from models.contacts import LatentNetworkModel
+from models.contacts import LatentNetworkGravityConstantRateModel
 from models.contacts.latent_network_gravity import (
-    LENGTHSCALE_MEAN_MINUTES,
     PARETO_ALPHA,
     PARETO_MINIMUM,
 )
@@ -25,26 +24,40 @@ from tests.contact_model_helpers import FakePyMC, ScriptedRng
 PARAMETERS = {
     "group_rate": np.asarray(2.0),
     "start_rate": np.asarray(0.5),
-    "lengthscale": np.asarray(1.0e9),
     "mean_duration_minutes": np.asarray(np.inf),
+    "activity_sigma": np.asarray(1.0),
     "mu_within": np.asarray(0.8),
     "mu_ratio": np.asarray(0.25),
     "eta": np.asarray(1.0e6),
 }
 
 
-class LatentNetworkTests(unittest.TestCase):
-    def test_model_is_registered_by_stable_name(self) -> None:
+class LatentNetworkGravityConstantRateTests(unittest.TestCase):
+    def test_model_is_registered_by_renamed_stable_name(self) -> None:
         self.assertIs(
-            CONTACT_MODEL_REGISTRY["latent_network"],
-            LatentNetworkModel,
+            CONTACT_MODEL_REGISTRY[
+                "latent_network_gravity_constant_rate"
+            ],
+            LatentNetworkGravityConstantRateModel,
         )
-        self.assertIs(MODEL_REGISTRY["latent_network"], LatentNetworkModel)
+        self.assertIs(
+            MODEL_REGISTRY["latent_network_gravity_constant_rate"],
+            LatentNetworkGravityConstantRateModel,
+        )
+        self.assertNotIn(
+            "latent_network_constant_rate",
+            CONTACT_MODEL_REGISTRY,
+        )
 
-    def test_prior_and_inference_variables_exclude_activity(self) -> None:
-        model = LatentNetworkModel()
+    def test_prior_and_inference_variables_preserve_constant_model(
+        self,
+    ) -> None:
+        model = LatentNetworkGravityConstantRateModel()
 
-        with patch("models.contacts.latent_network.pm", FakePyMC):
+        with patch(
+            "models.contacts.latent_network_gravity_constant_rate.pm",
+            FakePyMC,
+        ):
             prior = model.build_prior(n_agents=6, n_steps=20)
 
         self.assertEqual(
@@ -52,8 +65,8 @@ class LatentNetworkTests(unittest.TestCase):
             [
                 ("LogNormal", "group_rate"),
                 ("LogNormal", "start_rate"),
-                ("Exponential", "lengthscale"),
                 ("LogNormal", "mean_duration_minutes"),
+                ("HalfNormal", "activity_sigma"),
                 ("Beta", "mu_within"),
                 ("Beta", "mu_ratio"),
                 ("Pareto", "eta"),
@@ -64,47 +77,51 @@ class LatentNetworkTests(unittest.TestCase):
             (
                 "group_rate",
                 "start_rate",
-                "lengthscale",
                 "mean_duration_minutes",
+                "activity_sigma",
                 "mu_within",
                 "mu_ratio",
                 "eta",
             ),
         )
         self.assertEqual(
-            prior.variables[2][2],
-            {"lam": 1.0 / LENGTHSCALE_MEAN_MINUTES},
-        )
-        self.assertEqual(
             prior.variables[6][2],
             {"alpha": PARETO_ALPHA, "m": PARETO_MINIMUM},
         )
 
-    def test_pair_hazards_are_affinities_without_activity_products(self) -> None:
-        rng = ScriptedRng(communities=[0, 0, 1])
+    def test_rates_are_constant_and_hazards_are_combined(self) -> None:
+        rng = ScriptedRng(
+            communities=[0, 0, 1],
+            activities=[1.0, 2.0, 3.0],
+        )
         empty = {
             key: np.empty(0, dtype=np.int32)
             for key in ("t", "i", "j")
         }
 
         with patch(
-            "models.contacts.latent_network.simulate_weighted_conversations",
+            "models.contacts.latent_network_gravity_constant_rate."
+            "simulate_weighted_conversations",
             return_value=empty,
         ) as simulate:
-            LatentNetworkModel().simulate(
+            LatentNetworkGravityConstantRateModel().simulate(
                 PARAMETERS,
                 rng,
                 n_agents=3,
-                n_steps=2,
+                n_steps=3,
             )
 
         np.testing.assert_allclose(
             simulate.call_args.kwargs["hazards"],
-            [0.8, 0.2, 0.2],
+            [1.6, 0.6, 1.2],
+        )
+        np.testing.assert_array_equal(
+            simulate.call_args.kwargs["rates"],
+            [0.5, 0.5, 0.5],
         )
 
     def test_simulation_is_seeded_and_schema_compatible(self) -> None:
-        model = LatentNetworkModel()
+        model = LatentNetworkGravityConstantRateModel()
         first = model.simulate(
             PARAMETERS,
             np.random.default_rng(42),
@@ -122,23 +139,6 @@ class LatentNetworkTests(unittest.TestCase):
         for name in first:
             np.testing.assert_array_equal(first[name], second[name])
         self.assertTrue(np.all(first["i"] < first["j"]))
-
-    def test_activity_sigma_parameter_is_not_consumed(self) -> None:
-        first = LatentNetworkModel().simulate(
-            PARAMETERS,
-            np.random.default_rng(3),
-            n_agents=8,
-            n_steps=4,
-        )
-        second = LatentNetworkModel().simulate(
-            {**PARAMETERS, "activity_sigma": np.asarray(100.0)},
-            np.random.default_rng(3),
-            n_agents=8,
-            n_steps=4,
-        )
-
-        for name in first:
-            np.testing.assert_array_equal(first[name], second[name])
 
 
 if __name__ == "__main__":

@@ -200,11 +200,7 @@ class StoryModel(Model):
         simulation: Mapping[str, ArrayLike],
         **context: Any,
     ) -> SimulationData:
-        try:
-            n_days = context["n_days"]
-        except KeyError as exc:
-            raise ValueError("story models require n_days") from exc
-        return validate_story_data(simulation, n_days=n_days)
+        return validate_story_data(simulation, n_days=context["n_days"])
 
     def summarize(
         self,

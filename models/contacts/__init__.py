@@ -3,17 +3,25 @@
 from base.model import Model
 
 from .base import CONTACT_DATASET, ContactModel
+from .gravity import GravityModel
 from .group_occupancy import GroupOccupancyModel
 from .latent_network import LatentNetworkModel
-from .latent_network_constant_rate import LatentNetworkConstantRateModel
+from .latent_network_gravity import LatentNetworkGravityModel
+from .latent_network_gravity_constant_rate import (
+    LatentNetworkGravityConstantRateModel,
+)
 from .reputation import ReputationConversationModel
+from .spatial_conversation import SpatialConversationModel
 
 
 MODEL_CLASSES: tuple[type[Model], ...] = (
     ReputationConversationModel,
+    GravityModel,
     LatentNetworkModel,
-    LatentNetworkConstantRateModel,
+    LatentNetworkGravityModel,
+    LatentNetworkGravityConstantRateModel,
     GroupOccupancyModel,
+    SpatialConversationModel,
 )
 MODEL_REGISTRY: dict[str, type[Model]] = {
     model.name: model for model in MODEL_CLASSES
@@ -28,10 +36,13 @@ if any(model.dataset != CONTACT_DATASET for model in MODEL_CLASSES):
 __all__ = [
     "CONTACT_DATASET",
     "ContactModel",
+    "GravityModel",
     "GroupOccupancyModel",
-    "LatentNetworkConstantRateModel",
+    "LatentNetworkGravityConstantRateModel",
+    "LatentNetworkGravityModel",
     "LatentNetworkModel",
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
     "ReputationConversationModel",
+    "SpatialConversationModel",
 ]

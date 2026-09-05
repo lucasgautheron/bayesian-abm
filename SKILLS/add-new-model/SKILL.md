@@ -23,8 +23,10 @@ Follow the interfaces in `base/model.py` and the contact-model example in
    specification by asking focused questions. Do not infer unspecified
    distributions or stochastic behavior.
 6. The users are part of a workshop. They may not be totally familiar
-   with Bayesian methods. Please be pedagogical when eliciting choices between priors / distributions.
-7. Proceed to implementation only after the probabilistic program,
+   with Bayesian methods. Please be pedagogical when eliciting choices between priors / distributions. 
+7. Avoid very informative priors. Priors should be centered on the correct
+   order of magnitude rather than a specific precise value. When you propose a prior on a dimensional variable (e.g. a time), say which mean and standard deviation that would amount to (hopefully round numbers given our focus on orders of magnitude).
+8. Proceed to implementation only after the probabilistic program,
    distributions, and inference variables are fully specified and confirmed
    by the user.
 
@@ -68,6 +70,17 @@ class and registry through `__all__`.
 
 11. Explore performance improvements without changing model behavior.
     Simulations should be as fast as possible while keeping the code readable.
+12. Write human-readable code. The connection between the code and the verbal
+    description of the model should be clear. Add sparse comments
+    in the simulation function to make this connection clear.
+13. Read simple inputs, including simulation parameters and context values,
+    directly where they are used, for example
+    `rate = float(parameters["rate"])` or
+    `n_agents = int(context["n_agents"])`. Do not add trivial accessor or
+    validation helpers whose only job is lookup, conversion, elementary
+    validation, or replacing standard lookup/conversion errors with custom
+    exceptions. Keep short validation inline. Extract a helper only when it
+    contains substantive model logic or is meaningfully reused.
 
 ## Integration
 
@@ -79,7 +92,8 @@ class and registry through `__all__`.
 ## Verification
 
 - Add focused tests in `tests/test_<model_name>.py`.
-- Test deterministic helper functions and invalid inputs.
+- Test substantive deterministic helper functions and invalid inputs. Do not
+  extract implementation details into trivial helpers merely to test them.
 - Test that identical seeds produce identical parameters and contacts.
 - Test that `models.MODEL_REGISTRY[NewModel.name]` resolves to the new class.
 - Run the new tests plus the existing base-model tests.

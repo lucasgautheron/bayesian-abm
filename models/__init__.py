@@ -3,10 +3,13 @@
 from base.model import Model
 
 from .contacts import (
+    GravityModel,
     GroupOccupancyModel,
-    LatentNetworkConstantRateModel,
+    LatentNetworkGravityConstantRateModel,
+    LatentNetworkGravityModel,
     LatentNetworkModel,
     ReputationConversationModel,
+    SpatialConversationModel,
 )
 from .contacts import MODEL_CLASSES as CONTACT_MODEL_CLASSES
 from .contacts import MODEL_REGISTRY as CONTACT_MODEL_REGISTRY
@@ -65,8 +68,10 @@ __all__ = [
     "CONTACT_MODEL_CLASSES",
     "CONTACT_MODEL_REGISTRY",
     "GeneralizedSIRModel",
+    "GravityModel",
     "GroupOccupancyModel",
-    "LatentNetworkConstantRateModel",
+    "LatentNetworkGravityConstantRateModel",
+    "LatentNetworkGravityModel",
     "LatentNetworkModel",
     "LatentRateModel",
     "LinearInfluenceModel",
@@ -75,6 +80,7 @@ __all__ = [
     "MODEL_REGISTRY",
     "MODEL_REGISTRIES",
     "ReputationConversationModel",
+    "SpatialConversationModel",
     "STORY_MODEL_CLASSES",
     "STORY_MODEL_REGISTRY",
     "StoryCompetitionModel",

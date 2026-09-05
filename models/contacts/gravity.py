@@ -1,4 +1,4 @@
-"""Weighted SBM affinities with OU-modulated Poisson conversation starts."""
+"""Agent gravity with a uniform pair baseline and OU-modulated starts."""
 
 from __future__ import annotations
 
@@ -10,37 +10,28 @@ import pymc as pm
 from numpy.typing import ArrayLike, NDArray
 
 from .base import ContactModel
-from .group_occupancy import n_groups
 from .latent_network_gravity import (
     LENGTHSCALE_MEAN_MINUTES,
-    PARETO_ALPHA,
-    PARETO_MINIMUM,
-    affinity_means,
-    draw_affinities,
     draw_log_ou_path,
     empty_contacts,
     simulate_weighted_conversations,
 )
 
 
-class LatentNetworkModel(ContactModel):
-    """Static Beta pair affinities with OU-modulated conversation starts."""
+class GravityModel(ContactModel):
+    """Agent-activity gravity with no latent pair-affinity structure."""
 
-    name = "latent_network"
+    name = "gravity"
     inference_variables = (
-        "group_rate",
         "start_rate",
         "lengthscale",
         "mean_duration_minutes",
-        "mu_within",
-        "mu_ratio",
-        "eta",
+        "activity_sigma",
     )
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context
         with pm.Model() as prior:
-            pm.LogNormal("group_rate", mu=np.log(6.0), sigma=0.75)
             pm.LogNormal("start_rate", mu=np.log(0.001), sigma=1.0)
             pm.Exponential(
                 "lengthscale",
@@ -51,9 +42,7 @@ class LatentNetworkModel(ContactModel):
                 mu=np.log(3.0),
                 sigma=0.5,
             )
-            pm.Beta("mu_within", alpha=2.0, beta=5.0)
-            pm.Beta("mu_ratio", alpha=1.0, beta=20.0)
-            pm.Pareto("eta", alpha=PARETO_ALPHA, m=PARETO_MINIMUM)
+            pm.HalfNormal("activity_sigma", sigma=1.0)
         return prior
 
     def simulate(
@@ -67,22 +56,19 @@ class LatentNetworkModel(ContactModel):
         if n_agents < 2 or n_steps < 1:
             return empty_contacts()
 
-        group_rate = float(parameters["group_rate"])
         start_rate = float(parameters["start_rate"])
         lengthscale = float(parameters["lengthscale"])
         mean_duration = float(parameters["mean_duration_minutes"])
-        mu_within = float(parameters["mu_within"])
-        mu_ratio = float(parameters["mu_ratio"])
-        eta = float(parameters["eta"])
+        activity_sigma = float(parameters["activity_sigma"])
 
-        n_communities = n_groups(group_rate, n_agents)
-        communities = rng.integers(n_communities, size=n_agents, dtype=np.int32)
-        first, second, means = affinity_means(
-            communities,
-            mu_within,
-            mu_ratio,
+        activities = np.asarray(
+            rng.lognormal(0.0, activity_sigma, size=n_agents),
+            dtype=np.float64,
         )
-        hazards = draw_affinities(rng, means, eta)
+        first, second = np.triu_indices(n_agents, k=1)
+        first = np.asarray(first, dtype=np.int32)
+        second = np.asarray(second, dtype=np.int32)
+        hazards = activities[first] * activities[second]
         rates = start_rate * np.exp(
             draw_log_ou_path(rng, n_steps, lengthscale)
         )
@@ -96,4 +82,4 @@ class LatentNetworkModel(ContactModel):
         )
 
 
-__all__ = ["LatentNetworkModel"]
+__all__ = ["GravityModel"]
