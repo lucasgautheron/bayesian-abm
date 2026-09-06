@@ -22,15 +22,28 @@ from .stories import (
 )
 from .stories import MODEL_CLASSES as STORY_MODEL_CLASSES
 from .stories import MODEL_REGISTRY as STORY_MODEL_REGISTRY
+from .scientist_conventions import (
+    GlobalTransmissionModel,
+    LocalTransmissionModel,
+    StrategicConventionModel,
+)
+from .scientist_conventions import (
+    MODEL_CLASSES as SCIENTIST_MODEL_CLASSES,
+)
+from .scientist_conventions import (
+    MODEL_REGISTRY as SCIENTIST_MODEL_REGISTRY,
+)
 
 
 MODEL_REGISTRIES: dict[str, dict[str, type[Model]]] = {
     "contacts": CONTACT_MODEL_REGISTRY,
+    "scientist_conventions": SCIENTIST_MODEL_REGISTRY,
     "story_daily": STORY_MODEL_REGISTRY,
 }
 
 MODEL_CLASSES: tuple[type[Model], ...] = (
     *CONTACT_MODEL_CLASSES,
+    *SCIENTIST_MODEL_CLASSES,
     *STORY_MODEL_CLASSES,
 )
 MODEL_REGISTRY: dict[str, type[Model]] = {
@@ -68,6 +81,7 @@ __all__ = [
     "CONTACT_MODEL_CLASSES",
     "CONTACT_MODEL_REGISTRY",
     "GeneralizedSIRModel",
+    "GlobalTransmissionModel",
     "GravityModel",
     "GroupOccupancyModel",
     "LatentNetworkGravityConstantRateModel",
@@ -76,14 +90,18 @@ __all__ = [
     "LatentRateModel",
     "LinearInfluenceModel",
     "LimitedAttentionModel",
+    "LocalTransmissionModel",
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
     "MODEL_REGISTRIES",
     "ReputationConversationModel",
+    "SCIENTIST_MODEL_CLASSES",
+    "SCIENTIST_MODEL_REGISTRY",
     "SpatialConversationModel",
     "STORY_MODEL_CLASSES",
     "STORY_MODEL_REGISTRY",
     "StoryCompetitionModel",
+    "StrategicConventionModel",
     "model_registry",
     "resolve_model",
 ]

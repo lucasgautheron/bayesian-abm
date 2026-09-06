@@ -11,27 +11,33 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 import pandas as pd
 
-from base.model import ContactData
-from base.summaries import (
-    INTERVAL_SECONDS,
-    compute_scalar_summaries,
-    compute_summaries,
-    make_summaries,
-)
-from models.stories import (
+from base.model import ContactData, INTERVAL_SECONDS
+from base.summaries import compute_scalar_summaries
+from datasets.contacts.summaries import compute_summaries, make_summaries
+from datasets.story_daily.schema import STORY_DATASET
+from datasets.story_daily.summaries import (
     DEFAULT_STORY_SUMMARY_COUNT,
     make_story_summaries,
+)
+from datasets.scientist_conventions.schema import (
+    CULTURAL_BASELINE_YEAR,
+    SCIENTIST_CONVENTIONS_DATASET,
+)
+from datasets.scientist_conventions.summaries import (
+    make_scientist_summaries,
 )
 
 
 CONTACTS = "contacts"
-STORY_DAILY = "story_daily"
+STORY_DAILY = STORY_DATASET
+SCIENTIST_CONVENTIONS = SCIENTIST_CONVENTIONS_DATASET
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_PATHS = {
     CONTACTS: ROOT / "data" / "contacts" / "contacts.parquet",
     STORY_DAILY: (
         ROOT / "data" / "stories" / "processed" / "story_daily.parquet"
     ),
+    SCIENTIST_CONVENTIONS: ROOT / "data" / "scientist_conventions",
 }
 
 SummaryFunction = Callable[[Mapping[str, ArrayLike]], ArrayLike]
@@ -43,7 +49,7 @@ class Observations:
     """Inference-ready conditions and simulation context for one dataset."""
 
     dataset: str
-    context: Mapping[str, int]
+    context: Mapping[str, Any]
     summaries: Summaries
     conditions: Mapping[str, NDArray[Any]]
     observation_ids: NDArray[Any]
@@ -217,9 +223,172 @@ def story_daily_observations(path: Path) -> Observations:
     return story_daily_frame_observations(frame)
 
 
+def _network_edges(
+    frame: pd.DataFrame,
+    *,
+    n_scientists: int,
+    directed: bool,
+) -> tuple[NDArray[np.int32], NDArray[np.int32], NDArray[np.float64]]:
+    required = {"source", "target", "weight"}
+    missing = required.difference(frame.columns)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"network edge data is missing columns: {names}")
+    if frame[list(required)].isna().any().any():
+        raise ValueError("network edge columns must not contain null values")
+    source = frame["source"].to_numpy(dtype=np.int32)
+    target = frame["target"].to_numpy(dtype=np.int32)
+    weight = frame["weight"].to_numpy(dtype=np.float64)
+    if (
+        np.any(source < 0)
+        or np.any(source >= n_scientists)
+        or np.any(target < 0)
+        or np.any(target >= n_scientists)
+    ):
+        raise ValueError("network edge contains an unknown scientist ID")
+    if np.any(source == target):
+        raise ValueError("network edges must not contain self-loops")
+    if not directed and np.any(source >= target):
+        raise ValueError("coauthorship edges must use source < target")
+    if not np.all(np.isfinite(weight)) or np.any(weight <= 0.0):
+        raise ValueError("network weights must be finite and positive")
+    pairs = np.stack((source, target), axis=1)
+    if len(pairs) != len(np.unique(pairs, axis=0)):
+        raise ValueError("network edges must be unique")
+    return source, target, weight
+
+
+def scientist_convention_frame_observations(
+    scientists: pd.DataFrame,
+    coauthorship: pd.DataFrame,
+    citations: pd.DataFrame,
+) -> Observations:
+    """Convert scientist attributes and two edge lists into one observation."""
+
+    area_columns = [f"area_share_{index}" for index in range(4)]
+    required = {
+        "scientist_id",
+        "favorite_convention",
+        "primary_area",
+        "career_start_year",
+        *area_columns,
+    }
+    missing = required.difference(scientists.columns)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"scientist data is missing columns: {names}")
+    if scientists.empty:
+        raise ValueError("the observed scientist data is empty")
+    nonnullable = list(required.difference({"favorite_convention"}))
+    if scientists[nonnullable].isna().any().any():
+        raise ValueError("scientist covariates must not contain null values")
+
+    scientist_ids = scientists["scientist_id"].to_numpy()
+    n_scientists = len(scientists)
+    if not np.array_equal(scientist_ids, np.arange(n_scientists)):
+        raise ValueError("scientist_id must be ordered densely from zero")
+    favorite = scientists["favorite_convention"]
+    observed_mask = favorite.notna().to_numpy(dtype=np.bool_)
+    observed_values = favorite.loc[observed_mask].to_numpy()
+    if not np.all(np.isin(observed_values, (-1, 1))):
+        raise ValueError("favorite_convention must be -1, +1, or null")
+    preference = favorite.fillna(1).to_numpy(dtype=np.int8)
+    primary_area = scientists["primary_area"].to_numpy(dtype=np.int8)
+    area_shares = scientists[area_columns].to_numpy(dtype=np.float64)
+    career_start_year = scientists["career_start_year"].to_numpy(dtype=np.int16)
+
+    co_source, co_target, co_weight = _network_edges(
+        coauthorship,
+        n_scientists=n_scientists,
+        directed=False,
+    )
+    if "first_year" not in coauthorship:
+        raise ValueError("coauthorship data is missing column: first_year")
+    if coauthorship["first_year"].isna().any():
+        raise ValueError("coauthorship first_year must not contain null values")
+    first_year = coauthorship["first_year"].to_numpy(dtype=np.int16)
+    from scipy.sparse import csr_matrix
+
+    coauthorship_matrix = csr_matrix(
+        (
+            np.concatenate((co_weight, co_weight)),
+            (
+                np.concatenate((co_source, co_target)),
+                np.concatenate((co_target, co_source)),
+            ),
+        ),
+        shape=(n_scientists, n_scientists),
+    )
+    citation_source, citation_target, citation_weight = _network_edges(
+        citations,
+        n_scientists=n_scientists,
+        directed=True,
+    )
+    citation_matrix = csr_matrix(
+        (citation_weight, (citation_source, citation_target)),
+        shape=(n_scientists, n_scientists),
+    )
+
+    first_coauthor = np.full(n_scientists, -1, dtype=np.int32)
+    candidates: list[list[tuple[int, int]]] = [
+        [] for _ in range(n_scientists)
+    ]
+    for source, target, year in zip(
+        co_source,
+        co_target,
+        first_year,
+        strict=True,
+    ):
+        candidates[int(source)].append((int(year), int(target)))
+        candidates[int(target)].append((int(year), int(source)))
+    for scientist_id, scientist_candidates in enumerate(candidates):
+        if scientist_candidates:
+            first_coauthor[scientist_id] = min(scientist_candidates)[1]
+
+    context: dict[str, Any] = {
+        "n_scientists": n_scientists,
+        "primary_area": primary_area,
+        "area_shares": area_shares,
+        "career_start_year": career_start_year,
+        "observed_mask": observed_mask,
+        "coauthorship": coauthorship_matrix,
+        "citations": citation_matrix,
+        "first_coauthor": first_coauthor,
+        "start_year": CULTURAL_BASELINE_YEAR,
+        "end_year": int(career_start_year.max()),
+    }
+    summaries = make_scientist_summaries(**context)
+    conditions = {
+        name: values[None, ...]
+        for name, values in compute_scalar_summaries(
+            {"preference": preference},
+            summaries,
+            label="scientist summary",
+        ).items()
+    }
+    return Observations(
+        dataset=SCIENTIST_CONVENTIONS,
+        context=context,
+        summaries=summaries,
+        conditions=conditions,
+        observation_ids=np.asarray([SCIENTIST_CONVENTIONS]),
+    )
+
+
+def scientist_convention_observations(path: Path) -> Observations:
+    """Load the scientist convention Parquet directory."""
+
+    return scientist_convention_frame_observations(
+        pd.read_parquet(path / "scientists.parquet"),
+        pd.read_parquet(path / "coauthorship.parquet"),
+        pd.read_parquet(path / "citations.parquet"),
+    )
+
+
 OBSERVATION_LOADERS = {
     CONTACTS: contact_observations,
     STORY_DAILY: story_daily_observations,
+    SCIENTIST_CONVENTIONS: scientist_convention_observations,
 }
 
 
@@ -243,12 +412,15 @@ __all__ = [
     "CONTACTS",
     "DEFAULT_DATA_PATHS",
     "OBSERVATION_LOADERS",
+    "SCIENTIST_CONVENTIONS",
     "STORY_DAILY",
     "Observations",
     "condition_batches",
     "contact_observations",
     "load_contacts",
     "load_observations",
+    "scientist_convention_frame_observations",
+    "scientist_convention_observations",
     "story_daily_frame_observations",
     "story_daily_observations",
 ]

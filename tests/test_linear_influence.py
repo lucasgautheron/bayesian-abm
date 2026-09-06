@@ -12,7 +12,8 @@ sys.modules.setdefault("pymc", ModuleType("pymc"))
 sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
 from models import MODEL_REGISTRY, STORY_MODEL_REGISTRY
-from models.stories import LinearInfluenceModel, validate_story_data
+from datasets.story_daily.schema import validate_story_data
+from models.stories import LinearInfluenceModel
 from models.stories.linear_influence import (
     exponential_lag_kernel,
     linear_influence_intensity,

@@ -120,7 +120,7 @@ class Model(ABC):
     ) -> dict[str, NDArray[Any]]:
         """Validate one simulation and compute its inference conditions."""
 
-        from base.summaries import compute_summaries
+        from datasets.contacts.summaries import compute_summaries
 
         return compute_summaries(
             self.validate_simulation(simulation, **context),

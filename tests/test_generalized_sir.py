@@ -12,7 +12,8 @@ sys.modules.setdefault("pymc", ModuleType("pymc"))
 sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
 from models import MODEL_REGISTRY, STORY_MODEL_REGISTRY
-from models.stories import GeneralizedSIRModel, validate_story_data
+from datasets.story_daily.schema import validate_story_data
+from models.stories import GeneralizedSIRModel
 from models.stories.generalized_sir import (
     sir_infection_probability,
     weibull_mean_interest_duration,

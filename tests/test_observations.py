@@ -23,8 +23,8 @@ from models.stories import (
     LimitedAttentionModel,
     LinearInfluenceModel,
     StoryCompetitionModel,
-    validate_story_data,
 )
+from datasets.story_daily.schema import validate_story_data
 
 
 def story_frame() -> pd.DataFrame:

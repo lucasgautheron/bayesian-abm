@@ -117,7 +117,7 @@ model_module.pm = fake_pm
 model_module.bf = fake_bf
 
 from base.model import INTERVAL_SECONDS, Model, validate_contacts
-from base.summaries import compute_summaries
+from datasets.contacts.summaries import compute_summaries
 
 
 SUMMARIES = {

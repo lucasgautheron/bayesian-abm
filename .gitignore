@@ -70,12 +70,7 @@ ipython_config.py
 data/**/*.parquet
 data/stories/*.txt.gz
 data/contacts/original.dat
+data/scientist_conventions/source/
 
 # Generated plots and diagnostics
-/simulations_*.png
-/posterior_*.png
-/posterior_*_diagnostics/
-/model_comparison.png
-/model_comparison_diagnostics/
-/visualization/contacts*.png
-/visualization/temporal_*/
+/output/

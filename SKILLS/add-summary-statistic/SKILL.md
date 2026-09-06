@@ -1,16 +1,19 @@
 ---
 name: add-summary-statistic
-description: Adds and integrates summary statistics for temporal contact data. Use when creating, replacing, or substantially changing a summary function in base/summaries.py or the summaries used by simulation and inference.
+description: Adds and integrates summary statistics for temporal contact data. Use when creating, replacing, or substantially changing a summary function or the summaries used by simulation and inference.
 ---
 
 # Add a summary statistic
 
-Use the contact schema and validation in `base/model.py`, and follow the
-interfaces and examples in `base/summaries.py`.
+Generic scalar-summary machinery lives in `base/summaries.py`. Dataset-specific
+summaries and registries belong in `datasets/<dataset>/summaries.py`.
+
+For contacts, use the schema and validation in `base/model.py`, and follow the
+interfaces and examples in `datasets/contacts/summaries.py`.
 
 ## Requirements
 
-1. Implement reusable statistics in `base/summaries.py`.
+1. Implement contact statistics in `datasets/contacts/summaries.py`.
 2. Accept contact mappings with exactly the one-dimensional `t`, `i`, and `j`
    arrays. Treat `t` as interval-end times measured in
    `INTERVAL_SECONDS`.
@@ -27,13 +30,15 @@ interfaces and examples in `base/summaries.py`.
    observed contacts.
 7. Validate factory arguments immediately and reject contacts outside the
    configured domain with clear `ValueError` messages.
-8. Export public functions through `base/summaries.py`'s `__all__`.
-9. Add a context builder to `SUMMARY_BUILDERS` in `base/summaries.py`.
+8. Export public functions through
+   `datasets/contacts/summaries.py`'s `__all__`.
+9. Add a context builder to `SUMMARY_BUILDERS` in
+   `datasets/contacts/summaries.py`.
    Builders accept `n_agents` and `n_steps` and return a configured
    `SummaryFunction`.
-10. Use the shared `make_summaries` function from `base/summaries.py` in
-    inference, simulation, and model comparison. Do not create script-local
-    registries.
+10. Use the shared contact `make_summaries` function from
+    `datasets/contacts/summaries.py` in inference, simulation, and model
+    comparison. Do not create script-local registries.
 
 ## Pair-plot behavior
 
@@ -41,7 +46,7 @@ interfaces and examples in `base/summaries.py`.
 
 ## Verification
 
-Add focused tests in `tests/test_summaries.py` covering:
+Add focused tests in `tests/test_contact_summaries.py` covering:
 
 - a hand-computed result,
 - empty contacts and zero-valued bins or agents,

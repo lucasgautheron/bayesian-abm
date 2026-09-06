@@ -10,7 +10,7 @@ sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 sys.modules.setdefault("pymc", ModuleType("pymc"))
 
 from base.model import INTERVAL_SECONDS
-from base.summaries import (
+from datasets.contacts.summaries import (
     SUMMARY_BUILDERS,
     compute_summaries,
     contact_time_coefficient_of_variation,

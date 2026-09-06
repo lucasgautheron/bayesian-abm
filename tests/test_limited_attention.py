@@ -12,7 +12,8 @@ sys.modules.setdefault("pymc", ModuleType("pymc"))
 sys.modules.setdefault("bayesflow", ModuleType("bayesflow"))
 
 from models import MODEL_REGISTRY, STORY_MODEL_REGISTRY
-from models.stories import LimitedAttentionModel, validate_story_data
+from datasets.story_daily.schema import validate_story_data
+from models.stories import LimitedAttentionModel
 from models.stories.limited_attention import (
     preferential_attachment_followers,
 )
