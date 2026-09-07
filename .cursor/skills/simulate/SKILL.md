@@ -13,7 +13,10 @@ disable-model-invocation: true
    `/configure-summary-stats`; never select statistics silently.
 4. Run `python scripts/simulate.py <model>` with any user-provided `--runs`,
    `--seed`, `--cpus`, `--output`, or `--show` options. Use script defaults
-   for options the user did not specify.
+   for options the user did not specify. Run the command in a visible terminal
+   with stdout and stderr attached so progress bars stream while it runs. Do
+   not redirect, capture, or suppress its output; keep monitoring the command
+   until it exits.
 5. Report the saved figure path and the enabled summary names. If execution
    fails, diagnose the concrete error without changing model behavior or
    summary implementations unless asked.

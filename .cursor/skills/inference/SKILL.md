@@ -13,7 +13,10 @@ disable-model-invocation: true
    `/configure-summary-stats`; never select statistics silently.
 4. Run `python scripts/inference.py <model>` with any user-provided training,
    posterior, predictive, diagnostic, seed, CPU, output, or display options.
-   Use script defaults for options the user did not specify.
+   Use script defaults for options the user did not specify. Run the command
+   in a visible terminal with stdout and stderr attached so progress bars
+   stream while it runs. Do not redirect, capture, or suppress its output;
+   keep monitoring the command until it exits.
 5. Report the posterior, posterior-predictive, and diagnostics paths that were
    actually generated, together with the enabled summary names.
 6. If execution fails, diagnose the concrete error. Do not change priors,

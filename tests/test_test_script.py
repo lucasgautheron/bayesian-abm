@@ -33,12 +33,17 @@ class DiagnosticTests(unittest.TestCase):
         )
 
     def test_missing_default_keras_backend_suggests_jax(self) -> None:
-        error = ModuleNotFoundError("No module named 'tensorflow'")
-        error.name = "tensorflow"
+        result = CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="PROBE keras\n",
+            stderr="ModuleNotFoundError: No module named 'tensorflow'",
+        )
+        with patch.object(test_script.subprocess, "run", return_value=result):
+            with self.assertRaises(test_script.SmokeTestFailure) as raised:
+                test_script.probe_module("keras")
 
-        diagnostic = test_script.exception_diagnostic(error)
-
-        self.assertIn("KERAS_BACKEND=jax", diagnostic.resolution)
+        self.assertIn("KERAS_BACKEND=jax", raised.exception.resolution)
 
     def test_module_probe_reports_missing_transitive_dependency(self) -> None:
         result = CompletedProcess(
