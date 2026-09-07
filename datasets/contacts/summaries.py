@@ -14,7 +14,7 @@ from base.summaries import (
     Summaries,
     SummaryFunction,
     compute_scalar_summaries,
-    select_summaries,
+    validate_summary_names,
 )
 
 SummaryBuilder = Callable[[int, int], SummaryFunction]
@@ -507,15 +507,19 @@ def make_summaries(
         raise ValueError("n_agents must be at least 2")
     if n_steps < 1:
         raise ValueError("n_steps must be positive")
-    available = {
-        name: builder(n_agents, n_steps)
-        for name, builder in SUMMARY_BUILDERS.items()
-    }
-    return select_summaries(
-        available,
-        summary_names,
-        label="contact summary",
+    selected_names = (
+        tuple(SUMMARY_BUILDERS)
+        if summary_names is None
+        else validate_summary_names(
+            summary_names,
+            SUMMARY_BUILDERS,
+            label="contact summary",
+        )
     )
+    return {
+        name: SUMMARY_BUILDERS[name](n_agents, n_steps)
+        for name in selected_names
+    }
 
 
 __all__ = [
