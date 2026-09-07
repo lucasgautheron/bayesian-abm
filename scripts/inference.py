@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
 from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
+from base.summary_config import SummaryConfigurationError, load_summary_names
 from models import resolve_model
 from scripts.parallel import sample_model_in_processes, validate_cpus
 from scripts.simulate import summary_frame
@@ -137,6 +138,7 @@ def run_inference(
     observation_batch_size: int = 256,
     seed: int = 42,
     cpus: int = 1,
+    summary_names: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Train, infer, and return posterior and diagnostic plots."""
 
@@ -149,7 +151,15 @@ def run_inference(
     validate_cpus(cpus)
 
     model = resolve_model(model_name)
-    observations = load_observations(model.dataset)
+    selected_names = (
+        load_summary_names(model.dataset)
+        if summary_names is None
+        else tuple(summary_names)
+    )
+    observations = load_observations(
+        model.dataset,
+        summary_names=selected_names,
+    )
     context = observations.context
     summaries = observations.summaries
     workflow = make_workflow(
@@ -178,6 +188,7 @@ def run_inference(
                 seed=seed,
                 cpus=cpus,
                 include_parameters=True,
+                summary_names=tuple(summaries),
                 progress=progress.update,
             )
     workflow.fit_offline(
@@ -388,21 +399,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     output = args.output or ROOT / "output" / args.model / "posterior.png"
-    run_inference(
-        args.model,
-        output_path=output,
-        epochs=args.epochs,
-        num_simulations=args.num_simulations,
-        batch_size=args.batch_size,
-        posterior_draws=args.posterior_draws,
-        predictive_runs=args.predictive_runs,
-        diagnostic_datasets=args.diagnostic_datasets,
-        diagnostic_draws=args.diagnostic_draws,
-        diagnostics_path=args.diagnostics_dir,
-        observation_batch_size=args.observation_batch_size,
-        seed=args.seed,
-        cpus=args.cpus,
-    )
+    try:
+        run_inference(
+            args.model,
+            output_path=output,
+            epochs=args.epochs,
+            num_simulations=args.num_simulations,
+            batch_size=args.batch_size,
+            posterior_draws=args.posterior_draws,
+            predictive_runs=args.predictive_runs,
+            diagnostic_datasets=args.diagnostic_datasets,
+            diagnostic_draws=args.diagnostic_draws,
+            diagnostics_path=args.diagnostics_dir,
+            observation_batch_size=args.observation_batch_size,
+            seed=args.seed,
+            cpus=args.cpus,
+        )
+    except SummaryConfigurationError as exc:
+        raise SystemExit(f"error: {exc}") from exc
     print(f"Saved posterior pair plot to {output.resolve()}")
     if args.predictive_runs > 0:
         predictive_path = output.with_name("posterior_predictive.png")

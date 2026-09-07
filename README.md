@@ -66,3 +66,39 @@ export KERAS_BACKEND=jax
 
 Set `KERAS_BACKEND=jax` before importing BayesFlow in each new shell, or add it
 to the shell's environment configuration.
+
+## Choose summary statistics before running a workshop script
+
+The simulation and inference scripts require an explicit, local selection of
+summary statistics for the dataset used by the requested model. The selection
+lives in `.config/summary.ini` and is intentionally not committed.
+
+Ask Cursor, for example:
+
+> Configure the contact summary statistics for `latent_network`. Enable mean
+> contacts per bin, mean pair contact duration, and cumulative network
+> connectivity.
+
+Cursor will create or update `.config/summary.ini` with exact names from the
+dataset's Python registry. The ordered format is:
+
+```ini
+[contacts]
+enabled =
+    mean_contacts_per_bin
+    mean_pair_contact_duration
+    cumulative_network_connectivity
+```
+
+The available names and sections for all datasets are documented in
+`.config/summary.example.ini`. If the relevant selection is missing, empty,
+duplicated, or unknown, the script stops before simulation and reports the
+available names.
+
+Once configured, run any of the workshop entry points normally:
+
+```bash
+python scripts/simulate.py latent_network
+python scripts/inference.py latent_network
+python scripts/model-comparison.py reputation_conversation latent_network
+```

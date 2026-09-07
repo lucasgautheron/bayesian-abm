@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -62,6 +62,47 @@ class SummaryPairplotTests(unittest.TestCase):
     def test_rejects_non_positive_cpus(self) -> None:
         with self.assertRaisesRegex(ValueError, "cpus"):
             run_simulations("latent_network", cpus=0)
+
+    def test_requires_local_summary_selection_by_default(self) -> None:
+        with (
+            patch(
+                "scripts.simulate.resolve_model",
+                return_value=SimpleNamespace(dataset="contacts"),
+            ),
+            patch(
+                "scripts.simulate.load_summary_names",
+                side_effect=ValueError("selection required"),
+            ) as load_names,
+        ):
+            with self.assertRaisesRegex(ValueError, "selection required"):
+                run_simulations("latent_network", runs=2)
+
+        load_names.assert_called_once_with("contacts")
+
+    def test_explicit_summary_names_bypass_local_configuration(self) -> None:
+        with (
+            patch(
+                "scripts.simulate.resolve_model",
+                return_value=SimpleNamespace(dataset="contacts"),
+            ),
+            patch("scripts.simulate.load_summary_names") as load_names,
+            patch(
+                "scripts.simulate.load_observations",
+                side_effect=RuntimeError("stop after loading"),
+            ) as load_observations,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stop after loading"):
+                run_simulations(
+                    "latent_network",
+                    runs=2,
+                    summary_names=("mean_contacts_per_bin",),
+                )
+
+        load_names.assert_not_called()
+        load_observations.assert_called_once_with(
+            "contacts",
+            summary_names=("mean_contacts_per_bin",),
+        )
 
 
 if __name__ == "__main__":

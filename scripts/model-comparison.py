@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
+from base.summary_config import SummaryConfigurationError, load_summary_names
 from models import resolve_model
 from scripts.parallel import (
     sample_model_comparison_in_processes,
@@ -258,6 +259,7 @@ def run_model_comparison(
     observation_batch_size: int = 1_024,
     seed: int = 42,
     cpus: int = 1,
+    summary_names: Sequence[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, float]]:
     """Train a classifier and compare models on an observed dataset."""
 
@@ -274,7 +276,15 @@ def run_model_comparison(
     models = resolve_models(model_names)
     dataset = models[0].dataset
     names = [model.name for model in models]
-    observations = load_observations(dataset)
+    selected_names = (
+        load_summary_names(dataset)
+        if summary_names is None
+        else tuple(summary_names)
+    )
+    observations = load_observations(
+        dataset,
+        summary_names=selected_names,
+    )
     context = observations.context
     summaries = observations.summaries
     keras.utils.set_random_seed(seed)
@@ -313,6 +323,7 @@ def run_model_comparison(
                 simulator_seed=training_simulator_seed,
                 selection_seed=training_selection_seed,
                 cpus=cpus,
+                summary_names=tuple(summaries),
                 progress=progress.update,
             )
     fit_comparison_offline(
@@ -464,18 +475,21 @@ def main() -> None:
         / "_vs_".join(args.models)
         / "probabilities.png"
     )
-    plots, probabilities = run_model_comparison(
-        args.models,
-        output_path=output,
-        epochs=args.epochs,
-        num_simulations=args.num_simulations,
-        batch_size=args.batch_size,
-        diagnostic_datasets=args.diagnostic_datasets,
-        diagnostics_path=args.diagnostics_dir,
-        observation_batch_size=args.observation_batch_size,
-        seed=args.seed,
-        cpus=args.cpus,
-    )
+    try:
+        plots, probabilities = run_model_comparison(
+            args.models,
+            output_path=output,
+            epochs=args.epochs,
+            num_simulations=args.num_simulations,
+            batch_size=args.batch_size,
+            diagnostic_datasets=args.diagnostic_datasets,
+            diagnostics_path=args.diagnostics_dir,
+            observation_batch_size=args.observation_batch_size,
+            seed=args.seed,
+            cpus=args.cpus,
+        )
+    except SummaryConfigurationError as exc:
+        raise SystemExit(f"error: {exc}") from exc
     print(f"Saved model comparison to {output.resolve()}")
     for name, probability in probabilities.items():
         print(f"{name}: {probability:.3f}")

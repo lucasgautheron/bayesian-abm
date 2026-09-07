@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -120,12 +120,16 @@ def load_contacts(path: Path) -> tuple[ContactData, int, int]:
     return contacts, len(agent_ids), n_steps
 
 
-def contact_observations(path: Path) -> Observations:
+def contact_observations(
+    path: Path,
+    *,
+    summary_names: Sequence[str] | None = None,
+) -> Observations:
     """Load one pairwise-contact dataset."""
 
     contacts, n_agents, n_steps = load_contacts(path)
     context = {"n_agents": n_agents, "n_steps": n_steps}
-    summaries = make_summaries(**context)
+    summaries = make_summaries(**context, summary_names=summary_names)
     conditions = {
         name: values[None, ...]
         for name, values in compute_summaries(
@@ -146,6 +150,7 @@ def story_daily_frame_observations(
     frame: pd.DataFrame,
     *,
     story_count: int = DEFAULT_STORY_SUMMARY_COUNT,
+    summary_names: Sequence[str] | None = None,
 ) -> Observations:
     """Convert a dense daily panel into one joint population condition."""
 
@@ -194,6 +199,7 @@ def story_daily_frame_observations(
     summaries = make_story_summaries(
         **context,
         story_count=story_count,
+        summary_names=summary_names,
     )
     story_data = {"mentions": mention_matrix}
     conditions = {
@@ -213,14 +219,21 @@ def story_daily_frame_observations(
     )
 
 
-def story_daily_observations(path: Path) -> Observations:
+def story_daily_observations(
+    path: Path,
+    *,
+    summary_names: Sequence[str] | None = None,
+) -> Observations:
     """Load and summarize the complete daily story population."""
 
     frame = pd.read_parquet(
         path,
         columns=["story_id", "date", "mentions"],
     )
-    return story_daily_frame_observations(frame)
+    return story_daily_frame_observations(
+        frame,
+        summary_names=summary_names,
+    )
 
 
 def _network_edges(
@@ -262,6 +275,8 @@ def scientist_convention_frame_observations(
     scientists: pd.DataFrame,
     coauthorship: pd.DataFrame,
     citations: pd.DataFrame,
+    *,
+    summary_names: Sequence[str] | None = None,
 ) -> Observations:
     """Convert scientist attributes and two edge lists into one observation."""
 
@@ -357,7 +372,10 @@ def scientist_convention_frame_observations(
         "start_year": CULTURAL_BASELINE_YEAR,
         "end_year": int(career_start_year.max()),
     }
-    summaries = make_scientist_summaries(**context)
+    summaries = make_scientist_summaries(
+        **context,
+        summary_names=summary_names,
+    )
     conditions = {
         name: values[None, ...]
         for name, values in compute_scalar_summaries(
@@ -375,13 +393,18 @@ def scientist_convention_frame_observations(
     )
 
 
-def scientist_convention_observations(path: Path) -> Observations:
+def scientist_convention_observations(
+    path: Path,
+    *,
+    summary_names: Sequence[str] | None = None,
+) -> Observations:
     """Load the scientist convention Parquet directory."""
 
     return scientist_convention_frame_observations(
         pd.read_parquet(path / "scientists.parquet"),
         pd.read_parquet(path / "coauthorship.parquet"),
         pd.read_parquet(path / "citations.parquet"),
+        summary_names=summary_names,
     )
 
 
@@ -395,6 +418,8 @@ OBSERVATION_LOADERS = {
 def load_observations(
     dataset: str,
     path: Path | None = None,
+    *,
+    summary_names: Sequence[str] | None = None,
 ) -> Observations:
     """Load inference conditions using one dataset's native context."""
 
@@ -405,7 +430,10 @@ def load_observations(
         raise ValueError(
             f"unknown dataset {dataset!r}; available datasets: {choices}"
         ) from exc
-    return loader(path or DEFAULT_DATA_PATHS[dataset])
+    return loader(
+        path or DEFAULT_DATA_PATHS[dataset],
+        summary_names=summary_names,
+    )
 
 
 __all__ = [

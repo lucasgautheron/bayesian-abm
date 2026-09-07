@@ -31,6 +31,7 @@ MANIFEST
 .env.*
 !.env.example
 .envrc
+.config/summary.ini
 .venv/
 .venv*/
 env/

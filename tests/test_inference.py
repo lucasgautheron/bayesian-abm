@@ -100,6 +100,22 @@ class PosteriorPlotDataTests(unittest.TestCase):
 
         self.assertEqual(args.cpus, 1)
 
+    def test_requires_local_summary_selection_by_default(self) -> None:
+        with (
+            patch(
+                "scripts.inference.resolve_model",
+                return_value=SimpleNamespace(dataset="contacts"),
+            ),
+            patch(
+                "scripts.inference.load_summary_names",
+                side_effect=ValueError("selection required"),
+            ) as load_names,
+        ):
+            with self.assertRaisesRegex(ValueError, "selection required"):
+                run_inference("latent_network")
+
+        load_names.assert_called_once_with("contacts")
+
     def test_workflow_uses_direct_scalar_conditions(self) -> None:
         model = FakeWorkflowModel()
         fake_bf = SimpleNamespace(

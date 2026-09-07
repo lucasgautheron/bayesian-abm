@@ -219,6 +219,30 @@ class PriorAndHelperTests(unittest.TestCase):
             all(np.asarray(value).shape == () for value in values.values())
         )
 
+    def test_builds_an_ordered_story_summary_subset(self) -> None:
+        names = ("mention_concentration", "total_mentions")
+
+        summaries = make_story_summaries(
+            n_days=3,
+            story_count=2,
+            summary_names=names,
+        )
+        values = StoryCompetitionModel().summarize(
+            {"mentions": np.ones((2, 3), dtype=np.float32)},
+            summaries,
+            n_days=3,
+        )
+
+        self.assertEqual(tuple(summaries), names)
+        self.assertEqual(tuple(values), names)
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            make_story_summaries(n_days=3, summary_names=())
+        with self.assertRaisesRegex(ValueError, "unknown"):
+            make_story_summaries(
+                n_days=3,
+                summary_names=("not_registered",),
+            )
+
     def test_empty_story_population_has_finite_scalar_summaries(self) -> None:
         summaries = make_story_summaries(n_days=3, story_count=2)
         empty = {"mentions": np.empty((0, 3))}

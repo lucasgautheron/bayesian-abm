@@ -10,6 +10,7 @@ from datasets.scientist_conventions.summaries import (
     fit_ising_parameters,
     make_scientist_summaries,
 )
+from models.scientist_conventions import GlobalTransmissionModel
 from tests.scientist_model_helpers import scientist_context
 
 
@@ -55,6 +56,33 @@ class ScientistConventionBaseTests(unittest.TestCase):
         values = np.asarray([summary(data) for summary in summaries.values()])
         self.assertEqual(values.shape, (6,))
         self.assertTrue(np.all(np.isfinite(values)))
+
+    def test_builds_an_ordered_scientist_summary_subset(self) -> None:
+        names = ("citation_coupling", "field_theory_hep")
+        context = scientist_context()
+
+        summaries = make_scientist_summaries(
+            **context,
+            summary_names=names,
+        )
+        values = GlobalTransmissionModel().summarize(
+            {"preference": np.asarray([1, -1, 1, -1], dtype=np.int8)},
+            summaries,
+            **context,
+        )
+
+        self.assertEqual(tuple(summaries), names)
+        self.assertEqual(tuple(values), names)
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            make_scientist_summaries(
+                **scientist_context(),
+                summary_names=(),
+            )
+        with self.assertRaisesRegex(ValueError, "unknown"):
+            make_scientist_summaries(
+                **scientist_context(),
+                summary_names=("not_registered",),
+            )
 
     def test_ignores_unobserved_spins(self) -> None:
         context = scientist_context()

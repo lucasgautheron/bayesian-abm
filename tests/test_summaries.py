@@ -45,6 +45,32 @@ class TemporalSummaryTests(unittest.TestCase):
 
         self.assertEqual(set(summaries), set(SUMMARY_BUILDERS))
 
+    def test_builds_an_ordered_registered_subset(self) -> None:
+        names = (
+            "cumulative_network_connectivity",
+            "mean_contacts_per_bin",
+        )
+
+        summaries = make_summaries(
+            n_agents=4,
+            n_steps=3,
+            summary_names=names,
+        )
+
+        self.assertEqual(tuple(summaries), names)
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            make_summaries(
+                n_agents=4,
+                n_steps=3,
+                summary_names=(),
+            )
+        with self.assertRaisesRegex(ValueError, "unknown"):
+            make_summaries(
+                n_agents=4,
+                n_steps=3,
+                summary_names=("not_registered",),
+            )
+
     def test_summary_context_must_be_valid(self) -> None:
         with self.assertRaises(ValueError):
             make_summaries(n_agents=1, n_steps=3)

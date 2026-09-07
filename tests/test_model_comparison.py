@@ -179,6 +179,30 @@ class ModelComparisonTests(unittest.TestCase):
 
         self.assertEqual(args.cpus, 1)
 
+    def test_requires_local_summary_selection_by_default(self) -> None:
+        models = (
+            SimpleNamespace(name="first", dataset="contacts"),
+            SimpleNamespace(name="second", dataset="contacts"),
+        )
+        with (
+            patch.object(
+                model_comparison,
+                "resolve_models",
+                return_value=models,
+            ),
+            patch.object(
+                model_comparison,
+                "load_summary_names",
+                side_effect=ValueError("selection required"),
+            ) as load_names,
+        ):
+            with self.assertRaisesRegex(ValueError, "selection required"):
+                model_comparison.run_model_comparison(
+                    ["first", "second"],
+                )
+
+        load_names.assert_called_once_with("contacts")
+
     def test_fits_offline_from_pre_simulated_data(self) -> None:
         class Approximator:
             def __init__(self) -> None:

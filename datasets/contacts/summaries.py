@@ -10,7 +10,12 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from base.model import ContactData, INTERVAL_SECONDS, validate_contacts
-from base.summaries import Summaries, SummaryFunction, compute_scalar_summaries
+from base.summaries import (
+    Summaries,
+    SummaryFunction,
+    compute_scalar_summaries,
+    select_summaries,
+)
 
 SummaryBuilder = Callable[[int, int], SummaryFunction]
 
@@ -493,17 +498,24 @@ SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
 def make_summaries(
     n_agents: int,
     n_steps: int,
+    *,
+    summary_names: Sequence[str] | None = None,
 ) -> dict[str, SummaryFunction]:
-    """Build every registered contact statistic for a simulation context."""
+    """Build selected registered contact statistics for a simulation context."""
 
     if n_agents < 2:
         raise ValueError("n_agents must be at least 2")
     if n_steps < 1:
         raise ValueError("n_steps must be positive")
-    return {
+    available = {
         name: builder(n_agents, n_steps)
         for name, builder in SUMMARY_BUILDERS.items()
     }
+    return select_summaries(
+        available,
+        summary_names,
+        label="contact summary",
+    )
 
 
 __all__ = [

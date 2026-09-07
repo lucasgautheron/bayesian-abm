@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from base.summaries import select_summaries
 from datasets.story_daily.schema import validate_story_data
 
 DEFAULT_STORY_SUMMARY_COUNT = 1_000
@@ -120,8 +121,9 @@ def make_story_summaries(
     *,
     n_days: int,
     story_count: int = DEFAULT_STORY_SUMMARY_COUNT,
+    summary_names: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Return scalar conditions used by daily-story models."""
+    """Return selected scalar conditions used by daily-story models."""
 
     if (
         isinstance(n_days, (bool, np.bool_))
@@ -135,6 +137,11 @@ def make_story_summaries(
         or story_count < 1
     ):
         raise ValueError("story_count must be a positive integer")
+    statistics = select_summaries(
+        STORY_SUMMARY_STATISTICS,
+        summary_names,
+        label="story summary",
+    )
     cached_data: Mapping[str, ArrayLike] | None = None
     cached_mentions = np.empty((0, int(n_days)), dtype=np.float32)
 
@@ -151,7 +158,7 @@ def make_story_summaries(
 
     return {
         name: lambda data, statistic=statistic: statistic(selected(data))
-        for name, statistic in STORY_SUMMARY_STATISTICS.items()
+        for name, statistic in statistics.items()
     }
 
 

@@ -8,7 +8,7 @@ from typing import Any
 from numpy.typing import ArrayLike, NDArray
 
 from base.model import Model, SimulationData
-from base.summaries import compute_scalar_summaries
+from base.summaries import compute_scalar_summaries, validate_summary_names
 from datasets.scientist_conventions.schema import (
     SCIENTIST_CONVENTIONS_DATASET,
     validate_preference_data,
@@ -38,10 +38,11 @@ class ScientistConventionModel(Model):
         **context: Any,
     ) -> dict[str, NDArray[Any]]:
         data = self.validate_simulation(simulation, **context)
-        if set(summaries) != set(SCIENTIST_SUMMARY_NAMES):
-            raise ValueError(
-                "scientist summaries do not match the registered set"
-            )
+        validate_summary_names(
+            tuple(summaries),
+            SCIENTIST_SUMMARY_NAMES,
+            label="scientist summary",
+        )
         return compute_scalar_summaries(
             data,
             summaries,

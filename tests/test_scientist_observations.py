@@ -66,6 +66,17 @@ class ScientistObservationTests(unittest.TestCase):
         )
         self.assertEqual(observations.context["start_year"], 1981)
 
+    def test_computes_only_selected_scientist_conditions(self) -> None:
+        names = ("citation_coupling", "field_theory_hep")
+
+        observations = scientist_convention_frame_observations(
+            *scientist_frames(),
+            summary_names=names,
+        )
+
+        self.assertEqual(tuple(observations.summaries), names)
+        self.assertEqual(tuple(observations.conditions), names)
+
     def test_rejects_noncanonical_coauthorship_edges(self) -> None:
         scientists, coauthorship, citations = scientist_frames()
         coauthorship.loc[0, ["source", "target"]] = [1, 0]

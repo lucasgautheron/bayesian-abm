@@ -38,15 +38,24 @@ interfaces and examples in `datasets/contacts/summaries.py`.
    `SummaryFunction`.
 10. Use the shared contact `make_summaries` function from
     `datasets/contacts/summaries.py` in inference, simulation, and model
-    comparison. Do not create script-local registries.
+    comparison. Do not create script-local registries. Registration makes a
+    statistic available; it does not enable it in a user's local selection.
+
+## Local selection
+
+Workshop scripts load enabled names from the ignored
+`.config/summary.ini`. When a user asks to choose existing statistics, edit
+that file only: preserve other dataset sections, use exact registry names, and
+keep at least one name enabled. Do not change implementations or registries
+unless the user explicitly asks to change the available statistics.
 
 ## Pair-plot behavior
 
-`scripts/simulate.py` plots every scalar statistic directly.
+`scripts/simulate.py` plots every selected scalar statistic directly.
 
 ## Verification
 
-Add focused tests in `tests/test_contact_summaries.py` covering:
+Add focused tests in `tests/test_summaries.py` covering:
 
 - a hand-computed result,
 - empty contacts and zero-valued bins or agents,

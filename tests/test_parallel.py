@@ -9,6 +9,7 @@ import scripts.parallel as parallel
 from scripts.parallel import (
     concatenate_batches,
     partition_runs,
+    sample_model_comparison_in_processes,
     sample_model_in_processes,
 )
 
@@ -70,6 +71,7 @@ class ParallelSimulationTests(unittest.TestCase):
 
             def map_async(self, worker, tasks):
                 del worker
+                self.tasks = tasks
                 return Result(self.counter, tasks)
 
         class Counter:
@@ -97,6 +99,7 @@ class ParallelSimulationTests(unittest.TestCase):
                 seed=42,
                 cpus=3,
                 include_parameters=True,
+                summary_names=("first", "second"),
                 progress=completed.append,
             )
 
@@ -105,6 +108,31 @@ class ParallelSimulationTests(unittest.TestCase):
         self.assertEqual(context.pool.processes, 3)
         self.assertEqual(completed, [3, 2, 2])
         self.assertEqual(simulated["value"].shape, (7, 1))
+        self.assertTrue(
+            all(
+                task[4] == ("first", "second")
+                for task in context.pool.tasks
+            )
+        )
+
+    def test_model_comparison_tasks_include_selected_summaries(self) -> None:
+        with patch(
+            "scripts.parallel._run_tasks_in_processes",
+            return_value={"value": np.zeros((3, 1))},
+        ) as run:
+            sample_model_comparison_in_processes(
+                ("first_model", "second_model"),
+                runs=3,
+                simulator_seed=1,
+                selection_seed=2,
+                cpus=2,
+                summary_names=("second", "first"),
+            )
+
+        tasks = run.call_args.args[1]
+        self.assertTrue(
+            all(task[4] == ("second", "first") for task in tasks)
+        )
 
     def test_shared_progress_counter_works_with_spawned_processes(self) -> None:
         completed = []

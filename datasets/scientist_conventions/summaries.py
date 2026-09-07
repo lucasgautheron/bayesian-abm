@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -10,6 +10,7 @@ from numpy.typing import ArrayLike, NDArray
 from scipy.optimize import minimize
 from scipy.sparse import csr_matrix
 
+from base.summaries import validate_summary_names
 from datasets.scientist_conventions.schema import (
     PreferenceData,
     RESEARCH_AREA_COUNT,
@@ -116,10 +117,23 @@ def fit_ising_parameters(
     return fitted
 
 
-def make_scientist_summaries(**context: Any) -> dict[str, ScientistSummary]:
-    """Build cached scalar Ising summaries for one fixed scientist network."""
+def make_scientist_summaries(
+    *,
+    summary_names: Sequence[str] | None = None,
+    **context: Any,
+) -> dict[str, ScientistSummary]:
+    """Build selected cached Ising summaries for one fixed scientist network."""
 
     validate_scientist_context(context)
+    selected_names = (
+        SCIENTIST_SUMMARY_NAMES
+        if summary_names is None
+        else validate_summary_names(
+            summary_names,
+            SCIENTIST_SUMMARY_NAMES,
+            label="scientist summary",
+        )
+    )
     n_scientists = int(context["n_scientists"])
     primary_area = np.asarray(context["primary_area"])
     observed_mask = np.asarray(context["observed_mask"])
@@ -148,7 +162,8 @@ def make_scientist_summaries(**context: Any) -> dict[str, ScientistSummary]:
 
     return {
         name: lambda data, index=index: float(fitted(data)[index])
-        for index, name in enumerate(SCIENTIST_SUMMARY_NAMES)
+        for name in selected_names
+        for index in (SCIENTIST_SUMMARY_NAMES.index(name),)
     }
 
 

@@ -103,6 +103,18 @@ class StoryObservationTests(unittest.TestCase):
                 value,
             )
 
+    def test_computes_only_selected_story_conditions(self) -> None:
+        names = ("mention_concentration", "total_mentions")
+
+        observations = story_daily_frame_observations(
+            story_frame(),
+            story_count=2,
+            summary_names=names,
+        )
+
+        self.assertEqual(tuple(observations.summaries), names)
+        self.assertEqual(tuple(observations.conditions), names)
+
     def test_rejects_different_story_date_grids(self) -> None:
         frame = story_frame()
         frame.loc[5, "date"] += timedelta(days=1)

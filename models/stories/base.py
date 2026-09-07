@@ -8,7 +8,7 @@ from typing import Any
 from numpy.typing import ArrayLike, NDArray
 
 from base.model import Model, SimulationData
-from base.summaries import compute_scalar_summaries
+from base.summaries import compute_scalar_summaries, validate_summary_names
 from datasets.story_daily.schema import (
     STORY_DATASET,
     validate_story_data,
@@ -35,8 +35,11 @@ class StoryModel(Model):
         **context: Any,
     ) -> dict[str, NDArray[Any]]:
         data = self.validate_simulation(simulation, **context)
-        if set(summaries) != set(STORY_SUMMARY_STATISTICS):
-            raise ValueError("story summaries do not match the registered set")
+        validate_summary_names(
+            tuple(summaries),
+            STORY_SUMMARY_STATISTICS,
+            label="story summary",
+        )
         return compute_scalar_summaries(
             data,
             summaries,

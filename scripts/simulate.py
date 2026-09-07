@@ -7,7 +7,7 @@ Example:
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 import sys
 
@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
 
 from base.model import Model
 from base.observations import load_observations
+from base.summary_config import SummaryConfigurationError, load_summary_names
 from models import resolve_model
 from scripts.parallel import sample_model_in_processes, validate_cpus
 from visualization.diagnostics import plot_summary_pairplot
@@ -86,6 +87,7 @@ def run_simulations(
     runs: int = DEFAULT_RUNS,
     seed: int = 42,
     cpus: int = 1,
+    summary_names: Sequence[str] | None = None,
 ) -> Figure:
     """Run a model repeatedly and return its summary-statistic pair plot."""
 
@@ -93,7 +95,15 @@ def run_simulations(
         raise ValueError("runs must be at least 2 to estimate densities")
     validate_cpus(cpus)
     model: Model = resolve_model(model_name)
-    observations = load_observations(model.dataset)
+    selected_names = (
+        load_summary_names(model.dataset)
+        if summary_names is None
+        else tuple(summary_names)
+    )
+    observations = load_observations(
+        model.dataset,
+        summary_names=selected_names,
+    )
     context = observations.context
     summaries = observations.summaries
     from tqdm.auto import tqdm
@@ -115,6 +125,7 @@ def run_simulations(
                 seed=seed,
                 cpus=cpus,
                 include_parameters=False,
+                summary_names=tuple(summaries),
                 progress=progress.update,
             )
     frame = summary_frame(
@@ -173,13 +184,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     output = args.output or ROOT / "output" / args.model / "simulations.png"
-    run_simulations(
-        args.model,
-        output_path=output,
-        runs=args.runs,
-        seed=args.seed,
-        cpus=args.cpus,
-    )
+    try:
+        run_simulations(
+            args.model,
+            output_path=output,
+            runs=args.runs,
+            seed=args.seed,
+            cpus=args.cpus,
+        )
+    except SummaryConfigurationError as exc:
+        raise SystemExit(f"error: {exc}") from exc
     print(f"Saved simulation pair plot to {output.resolve()}")
     if args.show:
         plt.show()

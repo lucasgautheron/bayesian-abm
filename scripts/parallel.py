@@ -75,17 +75,26 @@ def concatenate_batches(
 
 
 def _sample_model_chunk(
-    task: tuple[str, int, np.random.SeedSequence, bool],
+    task: tuple[
+        str,
+        int,
+        np.random.SeedSequence,
+        bool,
+        tuple[str, ...],
+    ],
 ) -> dict[str, NDArray[Any]]:
     """Build and sample one model inside a worker process."""
 
-    model_name, runs, seed, include_parameters = task
+    model_name, runs, seed, include_parameters, summary_names = task
 
     from base.observations import load_observations
     from models import resolve_model
 
     model = resolve_model(model_name)
-    observations = load_observations(model.dataset)
+    observations = load_observations(
+        model.dataset,
+        summary_names=summary_names,
+    )
     simulator = model.to_bayesflow_simulator(
         observations.summaries,
         seed=seed,
@@ -139,6 +148,7 @@ def sample_model_in_processes(
     seed: Seed,
     cpus: int,
     include_parameters: bool,
+    summary_names: Sequence[str],
     progress: Callable[[int], object] | None = None,
 ) -> dict[str, NDArray[Any]]:
     """Sample independent model chunks in spawned worker processes."""
@@ -146,7 +156,13 @@ def sample_model_in_processes(
     counts = partition_runs(runs, cpus)
     seeds = _seed_sequence(seed).spawn(len(counts))
     tasks = [
-        (model_name, count, child_seed, include_parameters)
+        (
+            model_name,
+            count,
+            child_seed,
+            include_parameters,
+            tuple(summary_names),
+        )
         for count, child_seed in zip(counts, seeds)
     ]
     return _run_tasks_in_processes(
@@ -162,11 +178,18 @@ def _sample_model_comparison_chunk(
         int,
         np.random.SeedSequence,
         np.random.SeedSequence,
+        tuple[str, ...],
     ],
 ) -> dict[str, NDArray[Any]]:
     """Build and sample one model-comparison chunk in a worker process."""
 
-    model_names, runs, simulator_seed, selection_seed = task
+    (
+        model_names,
+        runs,
+        simulator_seed,
+        selection_seed,
+        summary_names,
+    ) = task
 
     import bayesflow as bf
 
@@ -177,7 +200,10 @@ def _sample_model_comparison_chunk(
     models = Model.validate_collection(
         [resolve_model(name) for name in model_names]
     )
-    observations = load_observations(models[0].dataset)
+    observations = load_observations(
+        models[0].dataset,
+        summary_names=summary_names,
+    )
     model_seeds = simulator_seed.spawn(len(models))
     simulators = [
         model.to_bayesflow_simulator(
@@ -211,6 +237,7 @@ def sample_model_comparison_in_processes(
     simulator_seed: Seed,
     selection_seed: Seed,
     cpus: int,
+    summary_names: Sequence[str],
     progress: Callable[[int], object] | None = None,
 ) -> dict[str, NDArray[Any]]:
     """Sample model-comparison chunks in spawned worker processes."""
@@ -220,7 +247,13 @@ def sample_model_comparison_in_processes(
     selection_seeds = _seed_sequence(selection_seed).spawn(len(counts))
     names = tuple(model_names)
     tasks = [
-        (names, count, simulation_seed, model_selection_seed)
+        (
+            names,
+            count,
+            simulation_seed,
+            model_selection_seed,
+            tuple(summary_names),
+        )
         for count, simulation_seed, model_selection_seed in zip(
             counts,
             simulator_seeds,
