@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 690" role="img" aria-labelledby="title description">
+  <title id="title">Bayesian agent-based modeling workshop workflow</title>
+  <desc id="description">
+    An iterative workflow from visualizing raw data through selecting summary
+    statistics, constructing a model, simulation, inference, diagnostics, and
+    submission. Cursor commands are shown beside the stages they support.
+  </desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="46" markerHeight="36" refX="32" refY="18" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 0 0 L 46 18 L 0 36 Z" fill="#000"/>
+    </marker>
+    <marker id="curve-arrow" markerWidth="46" markerHeight="36" refX="32" refY="18" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 0 0 L 46 18 L 0 36 Z" fill="#000"/>
+    </marker>
+    <style>
+      .label {
+        fill: #000;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 27px;
+        text-anchor: middle;
+      }
+      .small-label {
+        fill: #000;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 25px;
+        text-anchor: middle;
+      }
+      .arrow {
+        fill: none;
+        stroke: #000;
+        stroke-linecap: butt;
+        stroke-width: 11;
+        marker-end: url(#arrow);
+      }
+      .loop {
+        fill: none;
+        stroke: #000;
+        stroke-linecap: butt;
+        stroke-width: 12;
+        marker-end: url(#curve-arrow);
+      }
+      .command-box {
+        fill: #eef4ff;
+        stroke: #2563eb;
+        stroke-width: 1.5;
+      }
+      .command {
+        fill: #174ea6;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 16px;
+        font-weight: 600;
+        text-anchor: middle;
+      }
+    </style>
+  </defs>
+
+  <rect width="1024" height="690" fill="#fff"/>
+
+  <text class="label" x="414" y="40">1. Visualize raw data</text>
+  <path class="arrow" d="M 414 52 L 414 96"/>
+
+  <text class="label" x="414" y="124">2. Choose / add summary statistics</text>
+  <text class="small-label" x="414" y="152">(what do I want to explain?)</text>
+  <g>
+    <rect class="command-box" x="165" y="162" width="240" height="29" rx="7"/>
+    <text class="command" x="285" y="182">/configure-summary-stats</text>
+    <rect class="command-box" x="417" y="162" width="180" height="29" rx="7"/>
+    <text class="command" x="507" y="182">/add-summary-stat</text>
+  </g>
+  <path class="arrow" d="M 414 197 L 414 215"/>
+
+  <text class="label" x="414" y="240">3. Conceive a model</text>
+  <text class="small-label" x="414" y="267">(one candidate explanation)</text>
+  <text class="small-label" x="414" y="293">start simple!</text>
+  <path class="arrow" d="M 414 303 L 414 337"/>
+
+  <text class="label" x="414" y="369">4. Assign priors to all parameters</text>
+  <g>
+    <rect class="command-box" x="632" y="344" width="126" height="29" rx="7"/>
+    <text class="command" x="695" y="364">/add-model</text>
+  </g>
+  <path class="arrow" d="M 414 383 L 414 418"/>
+
+  <text class="label" x="414" y="450">5. Simulate (100s or 1000s of times)</text>
+  <text class="small-label" x="414" y="478">and compare to <tspan font-style="italic">observed</tspan> summary stats</text>
+  <g>
+    <rect class="command-box" x="677" y="426" width="116" height="29" rx="7"/>
+    <text class="command" x="735" y="446">/simulate</text>
+  </g>
+
+  <path class="arrow" d="M 404 491 L 371 529"/>
+  <path class="arrow" d="M 434 491 L 467 529"/>
+
+  <text class="small-label" x="288" y="553">Incompatibility</text>
+  <text class="small-label" x="288" y="580">(&#x2018;misspecification&#x2019;)</text>
+  <path class="loop" d="M 235 525 C 120 482 42 421 54 349 C 64 293 112 259 199 248"/>
+  <g>
+    <rect class="command-box" x="70" y="388" width="158" height="29" rx="7"/>
+    <text class="command" x="149" y="408">/update-model</text>
+  </g>
+
+  <text class="small-label" x="507" y="557">Compatible</text>
+  <text class="small-label" x="507" y="585">with data</text>
+  <path class="arrow" d="M 573 561 L 631 561"/>
+
+  <g>
+    <rect class="command-box" x="568" y="507" width="205" height="29" rx="7"/>
+    <text class="command" x="670.5" y="527">/inference · /report</text>
+  </g>
+  <text class="label" x="716" y="569">7. Inference</text>
+
+  <path class="arrow" d="M 785 552 L 823 515"/>
+  <text class="small-label" x="872" y="501">Misidentification</text>
+
+  <path class="arrow" d="M 785 574 L 823 613"/>
+  <text class="small-label" x="888" y="638">Proper identification</text>
+  <g>
+    <rect class="command-box" x="838" y="650" width="162" height="29" rx="7"/>
+    <text class="command" x="919" y="670">/submission</text>
+  </g>
+
+  <path class="loop" d="M 875 474 C 941 365 913 263 824 210 C 770 178 702 163 620 155"/>
+</svg>
