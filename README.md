@@ -90,6 +90,7 @@ counterpart.
 | Run prior-predictive simulations | `/simulate MODEL [OPTIONS]` | `python scripts/simulate.py MODEL [OPTIONS]` |
 | Run posterior inference | `/inference MODEL [OPTIONS]` | `python scripts/inference.py MODEL [OPTIONS]` |
 | Generate a model report | `/report MODEL [OPTIONS]` | `python scripts/report.py MODEL [OPTIONS]` |
+| Submit a model and report | `/submission MODEL` | Create `submissions/MODEL`, commit only the model and report files, then push the branch to the remote. |
 | Compare models | — | `python scripts/model-comparison.py MODEL [MODEL ...] [OPTIONS]` |
 
 Use `python scripts/<command>.py --help` to list the options accepted by a CLI
