@@ -28,6 +28,11 @@ class GravityModel(ContactModel):
         "mean_duration_minutes",
         "activity_sigma",
     )
+    parameter_units = {
+        "start_rate": "per minute",
+        "lengthscale": "minutes",
+        "mean_duration_minutes": "minutes",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

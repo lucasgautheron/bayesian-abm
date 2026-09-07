@@ -88,6 +88,12 @@ class GeneralizedSIRModel(StoryModel):
         "report_ratio",
         "forget_scale",
     )
+    parameter_units = {
+        "story_rate": "stories per day",
+        "reproduction_number": "secondary sources per source",
+        "interest_scale": "days",
+        "forget_scale": "days",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

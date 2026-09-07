@@ -437,17 +437,16 @@ def cumulative_network_average_path_length(
     )
 
 
-def cumulative_network_degree_coefficient_of_variation(
+def cumulative_network_degree_variance(
     agent_ids: Sequence[int],
 ) -> SummaryFunction:
-    """Return the CV of unique-neighbor degrees, including isolates."""
+    """Return population variance of unique-neighbor degrees, including isolates."""
 
     agents = _agent_sequence(agent_ids)
 
     def summary(contacts: ContactData) -> float:
         degrees = _adjacency_matrix(contacts, agents).sum(axis=1)
-        mean = float(degrees.mean())
-        return 0.0 if np.isclose(mean, 0.0) else float(degrees.std() / mean)
+        return float(degrees.var())
 
     return summary
 
@@ -489,8 +488,8 @@ SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
     "cumulative_network_average_path_length": _agent_factory(
         cumulative_network_average_path_length
     ),
-    "cumulative_network_degree_coefficient_of_variation": _agent_factory(
-        cumulative_network_degree_coefficient_of_variation
+    "cumulative_network_degree_variance": _agent_factory(
+        cumulative_network_degree_variance
     ),
 }
 
@@ -531,7 +530,7 @@ __all__ = [
     "cumulative_network_average_path_length",
     "cumulative_network_clustering",
     "cumulative_network_connectivity",
-    "cumulative_network_degree_coefficient_of_variation",
+    "cumulative_network_degree_variance",
     "integrated_contact_autocorrelation_time",
     "make_summaries",
     "mean_contact_run_duration",

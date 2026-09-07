@@ -24,13 +24,18 @@ if str(ROOT) not in sys.path:
 from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
-from base.summary_config import SummaryConfigurationError, load_summary_names
+from base.summary_config import (
+    SummaryConfigurationError,
+    format_summary_configuration_error,
+    load_summary_names,
+)
 from models import resolve_model
 from scripts.parallel import sample_model_in_processes, validate_cpus
 from scripts.simulate import summary_frame
 from visualization.diagnostics import (
     plot_predictive_summary_pairplot,
     plot_prior_posterior_pairplot,
+    plot_summary_pairplot,
 )
 
 
@@ -123,10 +128,42 @@ def sample_observations(
     }
 
 
+def _observed_summary_data(observations: Any) -> Mapping[str, float] | Any:
+    observed_frame = summary_frame(
+        observations.conditions,
+        runs=observations.count,
+    )
+    return (
+        observed_frame.iloc[0].to_dict()
+        if observations.count == 1
+        else observed_frame
+    )
+
+
+def plot_training_summary_pairplot(
+    training_data: Mapping[str, np.ndarray],
+    observations: Any,
+    summaries: Sequence[str],
+    *,
+    runs: int,
+) -> Any:
+    """Plot prior-predictive summaries already generated for training."""
+
+    training_frame = summary_frame(
+        {name: training_data[name] for name in summaries},
+        runs=runs,
+    )
+    return plot_summary_pairplot(
+        training_frame,
+        _observed_summary_data(observations),
+    )
+
+
 def run_inference(
     model_name: str,
     *,
     output_path: Path | None = None,
+    summary_output_path: Path | None = None,
     epochs: int = 32,
     num_simulations: int = 2_000,
     batch_size: int = 16,
@@ -144,6 +181,10 @@ def run_inference(
 
     if num_simulations < 1:
         raise ValueError("num_simulations must be positive")
+    if summary_output_path is not None and num_simulations < 2:
+        raise ValueError(
+            "num_simulations must be at least 2 for a summary pair plot"
+        )
     if epochs < 1:
         raise ValueError("epochs must be positive")
     if batch_size < 1:
@@ -191,6 +232,21 @@ def run_inference(
                 summary_names=tuple(summaries),
                 progress=progress.update,
             )
+    plots: dict[str, Any] = {}
+    if summary_output_path is not None:
+        simulation_figure = plot_training_summary_pairplot(
+            training_data,
+            observations,
+            tuple(summaries),
+            runs=num_simulations,
+        )
+        summary_output_path.parent.mkdir(parents=True, exist_ok=True)
+        simulation_figure.savefig(
+            summary_output_path,
+            dpi=160,
+            bbox_inches="tight",
+        )
+        plots["simulations"] = simulation_figure
     workflow.fit_offline(
         training_data,
         epochs=epochs,
@@ -215,7 +271,7 @@ def run_inference(
         posterior,
         variable_keys,
     )
-    plots = {"posterior": posterior_figure}
+    plots["posterior"] = posterior_figure
 
     if predictive_runs > 0:
         if predictive_runs < 2:
@@ -259,19 +315,10 @@ def run_inference(
             posterior_simulated,
             runs=n_posterior_runs,
         )
-        observed_frame = summary_frame(
-            observations.conditions,
-            runs=observations.count,
-        )
-        observed = (
-            observed_frame.iloc[0].to_dict()
-            if observations.count == 1
-            else observed_frame
-        )
         predictive_figure = plot_predictive_summary_pairplot(
             prior_frame,
             posterior_frame,
-            observed,
+            _observed_summary_data(observations),
         )
         plots["posterior_predictive"] = predictive_figure
 
@@ -313,7 +360,11 @@ def run_inference(
         diagnostics_path = diagnostics_path or output_path.parent / "diagnostics"
         diagnostics_path.mkdir(parents=True, exist_ok=True)
         for name, figure in plots.items():
-            if name not in {"posterior", "posterior_predictive"}:
+            if name not in {
+                "posterior",
+                "posterior_predictive",
+                "simulations",
+            }:
                 figure.savefig(
                     diagnostics_path / f"{name}.png",
                     dpi=160,
@@ -416,7 +467,11 @@ def main() -> None:
             cpus=args.cpus,
         )
     except SummaryConfigurationError as exc:
-        raise SystemExit(f"error: {exc}") from exc
+        message = format_summary_configuration_error(
+            exc,
+            color=sys.stderr.isatty(),
+        )
+        raise SystemExit(f"error: {message}") from exc
     print(f"Saved posterior pair plot to {output.resolve()}")
     if args.predictive_runs > 0:
         predictive_path = output.with_name("posterior_predictive.png")

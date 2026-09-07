@@ -88,6 +88,7 @@ class Model(ABC):
     name: ClassVar[str] = ""
     dataset: ClassVar[str] = "contacts"
     inference_variables: ClassVar[Sequence[str] | None] = None
+    parameter_units: ClassVar[Mapping[str, str]] = {}
 
     @abstractmethod
     def build_prior(self, **context: Any) -> pm.Model:

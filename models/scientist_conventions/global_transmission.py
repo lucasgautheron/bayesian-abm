@@ -13,6 +13,7 @@ from datasets.scientist_conventions.schema import validate_scientist_context
 from .base import ScientistConventionModel
 from .cultural import (
     CULTURAL_INFERENCE_VARIABLES,
+    CULTURAL_PARAMETER_UNITS,
     build_cultural_prior,
     cultural_probabilities,
     global_preference_draws,
@@ -24,6 +25,7 @@ class GlobalTransmissionModel(ScientistConventionModel):
 
     name = "scientist_global_transmission"
     inference_variables = CULTURAL_INFERENCE_VARIABLES
+    parameter_units = CULTURAL_PARAMETER_UNITS
 
     def build_prior(self, **context: Any) -> pm.Model:
         return build_cultural_prior(**context)

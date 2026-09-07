@@ -40,18 +40,21 @@ Follow the interfaces in `base/model.py` and the contact-model example in
 3. Give the class a unique, stable `name`.
 4. Set `inference_variables` to the prior variables inferred by BayesFlow. Use
    `None` only when every free prior variable is an inference target.
-5. Implement `build_prior(**context)` and return a prior-only `pymc.Model`.
+5. Give the class a concise, report-ready docstring. Set `parameter_units` for
+   every inference variable with a meaningful natural unit, such as `minutes`,
+   `stories per day`, or `log odds per year`; omit dimensionless variables.
+6. Implement `build_prior(**context)` and return a prior-only `pymc.Model`.
    Context-dependent shapes must come from explicit context values such as
    `n_agents`.
-6. Implement `simulate(parameters, rng, **context)`. Use only the provided
+7. Implement `simulate(parameters, rng, **context)`. Use only the provided
    `numpy.random.Generator` for randomness so seeded runs are reproducible.
-7. Return exactly the contact columns `t`, `i`, and `j`. Each must be a
+8. Return exactly the contact columns `t`, `i`, and `j`. Each must be a
    one-dimensional `numpy.ndarray` with dtype `np.int32`; all three arrays must
    have equal lengths. Express `t` as interval-end times compatible with
    `base.model.INTERVAL_SECONDS`.
-8. Validate required context and reject invalid values with clear exceptions.
-9. Export the model class from its module with `__all__`.
-10. Register the class in its dataset package's `__init__.py`. Import it, add
+9. Validate required context and reject invalid values with clear exceptions.
+10. Export the model class from its module with `__all__`.
+11. Register the class in its dataset package's `__init__.py`. Import it, add
     it to `MODEL_CLASSES`, and expose it by its stable `name` in
     `MODEL_REGISTRY`:
 
@@ -68,12 +71,12 @@ MODEL_REGISTRY = {model.name: model for model in MODEL_CLASSES}
 Preserve all existing classes when extending `MODEL_CLASSES`. Export the new
 class and registry through `__all__`.
 
-11. Explore performance improvements without changing model behavior.
+12. Explore performance improvements without changing model behavior.
     Simulations should be as fast as possible while keeping the code readable.
-12. Write human-readable code. The connection between the code and the verbal
+13. Write human-readable code. The connection between the code and the verbal
     description of the model should be clear. Add sparse comments
     in the simulation function to make this connection clear.
-13. Read simple inputs, including simulation parameters and context values,
+14. Read simple inputs, including simulation parameters and context values,
     directly where they are used, for example
     `rate = float(parameters["rate"])` or
     `n_agents = int(context["n_agents"])`. Do not add trivial accessor or
@@ -96,4 +99,17 @@ class and registry through `__all__`.
   extract implementation details into trivial helpers merely to test them.
 - Test that identical seeds produce identical parameters and contacts.
 - Test that `models.MODEL_REGISTRY[NewModel.name]` resolves to the new class.
+- Check the report metadata against the implemented prior:
+
+```python
+from base.reporting import summarize_priors
+
+rows = summarize_priors(model, observations.context)
+```
+
+  Confirm that every inference variable appears once, its human-readable prior
+  matches `build_prior`, its mean and sigma are on the natural scale, and its
+  unit is correct. Extend `base.reporting` and its tests when introducing a new
+  PyMC distribution family; do not duplicate prior-moment formulas in a model
+  or skill.
 - Run the new tests plus the existing base-model tests.

@@ -36,6 +36,12 @@ class LatentNetworkModel(ContactModel):
         "mu_ratio",
         "eta",
     )
+    parameter_units = {
+        "group_rate": "groups",
+        "start_rate": "per minute",
+        "lengthscale": "minutes",
+        "mean_duration_minutes": "minutes",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

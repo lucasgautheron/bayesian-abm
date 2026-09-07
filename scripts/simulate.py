@@ -24,7 +24,11 @@ if str(ROOT) not in sys.path:
 
 from base.model import Model
 from base.observations import load_observations
-from base.summary_config import SummaryConfigurationError, load_summary_names
+from base.summary_config import (
+    SummaryConfigurationError,
+    format_summary_configuration_error,
+    load_summary_names,
+)
 from models import resolve_model
 from scripts.parallel import sample_model_in_processes, validate_cpus
 from visualization.diagnostics import plot_summary_pairplot
@@ -193,7 +197,11 @@ def main() -> None:
             cpus=args.cpus,
         )
     except SummaryConfigurationError as exc:
-        raise SystemExit(f"error: {exc}") from exc
+        message = format_summary_configuration_error(
+            exc,
+            color=sys.stderr.isatty(),
+        )
+        raise SystemExit(f"error: {message}") from exc
     print(f"Saved simulation pair plot to {output.resolve()}")
     if args.show:
         plt.show()

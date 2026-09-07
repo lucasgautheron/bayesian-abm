@@ -30,6 +30,12 @@ class LatentRateModel(StoryModel):
         "rate_sigma",
         "lifetime_scale",
     )
+    parameter_units = {
+        "story_rate": "stories per day",
+        "rate_mu": "log mentions per day",
+        "rate_sigma": "log mentions per day",
+        "lifetime_scale": "days",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

@@ -119,6 +119,11 @@ class SpatialConversationModel(ContactModel):
         "start_probability",
         "mean_duration_minutes",
     )
+    parameter_units = {
+        "interaction_radius": "unit-torus distance",
+        "movement_scale": "unit-torus distance per minute",
+        "mean_duration_minutes": "minutes",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

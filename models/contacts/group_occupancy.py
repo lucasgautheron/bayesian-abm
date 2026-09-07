@@ -62,6 +62,11 @@ class GroupOccupancyModel(ContactModel):
         "activity_sigma",
         "between_ratio",
     )
+    parameter_units = {
+        "group_rate": "groups",
+        "start_rate": "per minute",
+        "mean_duration_minutes": "minutes",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

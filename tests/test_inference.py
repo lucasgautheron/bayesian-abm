@@ -16,6 +16,7 @@ import pandas as pd
 from scripts.inference import (
     make_workflow,
     parse_args,
+    plot_training_summary_pairplot,
     posterior_parameter_draws,
     run_inference,
     sample_observations,
@@ -208,6 +209,43 @@ class PosteriorPlotDataTests(unittest.TestCase):
         self.assertEqual(
             [text.get_text() for text in figure.legends[0].get_texts()],
             ["Prior predictive", "Posterior predictive", "Observed"],
+        )
+
+    def test_training_summaries_make_prior_predictive_pairplot(self) -> None:
+        observations = SimpleNamespace(
+            conditions={
+                "connectivity": np.asarray([[0.4]]),
+                "clustering": np.asarray([[0.2]]),
+            },
+            count=1,
+        )
+        training_data = {
+            "theta": np.arange(6.0),
+            "connectivity": np.linspace(0.1, 0.6, 6),
+            "clustering": np.linspace(0.0, 0.5, 6),
+        }
+        figure = object()
+
+        with patch(
+            "scripts.inference.plot_summary_pairplot",
+            return_value=figure,
+        ) as pairplot:
+            result = plot_training_summary_pairplot(
+                training_data,
+                observations,
+                ("connectivity", "clustering"),
+                runs=6,
+            )
+
+        self.assertIs(result, figure)
+        simulated, observed = pairplot.call_args.args
+        self.assertEqual(
+            list(simulated.columns),
+            ["connectivity", "clustering"],
+        )
+        self.assertEqual(
+            observed,
+            {"connectivity": 0.4, "clustering": 0.2},
         )
 
 

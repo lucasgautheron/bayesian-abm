@@ -18,7 +18,7 @@ from datasets.contacts.summaries import (
     cumulative_network_average_path_length,
     cumulative_network_clustering,
     cumulative_network_connectivity,
-    cumulative_network_degree_coefficient_of_variation,
+    cumulative_network_degree_variance,
     integrated_contact_autocorrelation_time,
     make_summaries,
     mean_contact_run_duration,
@@ -313,17 +313,15 @@ class NetworkSummaryTests(unittest.TestCase):
         clustering = cumulative_network_clustering(self.agent_ids)
         assortativity = cumulative_network_assortativity(self.agent_ids)
         path_length = cumulative_network_average_path_length(self.agent_ids)
-        degree_cv = cumulative_network_degree_coefficient_of_variation(
-            self.agent_ids
-        )
+        degree_variance = cumulative_network_degree_variance(self.agent_ids)
 
         self.assertAlmostEqual(connectivity(self.data), 0.4)
         self.assertAlmostEqual(clustering(self.data), 7.0 / 15.0)
         self.assertAlmostEqual(assortativity(self.data), -5.0 / 7.0)
         self.assertAlmostEqual(path_length(self.data), 4.0 / 3.0)
         self.assertAlmostEqual(
-            degree_cv(self.data),
-            float(np.std([2, 2, 3, 1, 0]) / np.mean([2, 2, 3, 1, 0])),
+            degree_variance(self.data),
+            float(np.var([2, 2, 3, 1, 0])),
         )
         batched = compute_summaries(
             self.data,
@@ -334,8 +332,8 @@ class NetworkSummaryTests(unittest.TestCase):
             4.0 / 3.0,
         )
         self.assertAlmostEqual(
-            float(batched["cumulative_network_degree_coefficient_of_variation"][0]),
-            float(np.std([2, 2, 3, 1, 0]) / np.mean([2, 2, 3, 1, 0])),
+            float(batched["cumulative_network_degree_variance"][0]),
+            float(np.var([2, 2, 3, 1, 0])),
         )
 
     def test_empty_network_has_zero_summaries(self) -> None:
@@ -346,7 +344,7 @@ class NetworkSummaryTests(unittest.TestCase):
             cumulative_network_clustering,
             cumulative_network_assortativity,
             cumulative_network_average_path_length,
-            cumulative_network_degree_coefficient_of_variation,
+            cumulative_network_degree_variance,
         ):
             result = factory(self.agent_ids)(empty)
             self.assertEqual(result, 0.0)
@@ -368,9 +366,7 @@ class NetworkSummaryTests(unittest.TestCase):
 
         self.assertEqual(result, 0.0)
         self.assertEqual(
-            cumulative_network_degree_coefficient_of_variation([0, 1, 2])(
-                triangle
-            ),
+            cumulative_network_degree_variance([0, 1, 2])(triangle),
             0.0,
         )
 
@@ -397,7 +393,7 @@ class NetworkSummaryTests(unittest.TestCase):
             cumulative_network_clustering,
             cumulative_network_assortativity,
             cumulative_network_average_path_length,
-            cumulative_network_degree_coefficient_of_variation,
+            cumulative_network_degree_variance,
         ):
             expected = factory(self.agent_ids)(self.data)
             self.assertEqual(factory(self.agent_ids)(reordered), expected)
@@ -412,7 +408,7 @@ class NetworkSummaryTests(unittest.TestCase):
             cumulative_network_clustering,
             cumulative_network_assortativity,
             cumulative_network_average_path_length,
-            cumulative_network_degree_coefficient_of_variation,
+            cumulative_network_degree_variance,
         ):
             with self.assertRaisesRegex(ValueError, "at least two unique"):
                 factory([0])

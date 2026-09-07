@@ -27,7 +27,11 @@ if str(ROOT) not in sys.path:
 from base.model import Model
 from base.observations import condition_batches, load_observations
 from base.summaries import Summaries
-from base.summary_config import SummaryConfigurationError, load_summary_names
+from base.summary_config import (
+    SummaryConfigurationError,
+    format_summary_configuration_error,
+    load_summary_names,
+)
 from models import resolve_model
 from scripts.parallel import (
     sample_model_comparison_in_processes,
@@ -489,7 +493,11 @@ def main() -> None:
             cpus=args.cpus,
         )
     except SummaryConfigurationError as exc:
-        raise SystemExit(f"error: {exc}") from exc
+        message = format_summary_configuration_error(
+            exc,
+            color=sys.stderr.isatty(),
+        )
+        raise SystemExit(f"error: {message}") from exc
     print(f"Saved model comparison to {output.resolve()}")
     for name, probability in probabilities.items():
         print(f"{name}: {probability:.3f}")

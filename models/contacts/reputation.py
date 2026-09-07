@@ -130,6 +130,10 @@ class ReputationConversationModel(ContactModel):
         "mean_duration_minutes",
         "reputation_sigma",
     )
+    parameter_units = {
+        "p_minute": "probability per minute",
+        "mean_duration_minutes": "minutes",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         n_agents = context["n_agents"]

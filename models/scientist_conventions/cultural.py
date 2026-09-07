@@ -20,6 +20,11 @@ CULTURAL_INFERENCE_VARIABLES = (
     "annual_drift",
     "innovation_scale",
 )
+CULTURAL_PARAMETER_UNITS = {
+    "baseline_log_odds": "log odds",
+    "annual_drift": "log odds per year",
+    "innovation_scale": "log odds per year",
+}
 
 
 def build_cultural_prior(
@@ -127,6 +132,7 @@ def global_preference_draws(
 
 __all__ = [
     "CULTURAL_INFERENCE_VARIABLES",
+    "CULTURAL_PARAMETER_UNITS",
     "build_cultural_prior",
     "cultural_probabilities",
     "global_preference_draws",

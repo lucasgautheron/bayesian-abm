@@ -73,32 +73,58 @@ The simulation and inference scripts require an explicit, local selection of
 summary statistics for the dataset used by the requested model. The selection
 lives in `.config/summary.ini` and is intentionally not committed.
 
-Ask Cursor, for example:
+Run `/configure-summary-stats` in Cursor and name a model or dataset. Cursor
+will:
 
-> Configure the contact summary statistics for `latent_network`. Enable mean
-> contacts per bin, mean pair contact duration, and cumulative network
-> connectivity.
+- explain the recommended starting set;
+- list every registered option;
+- ask whether you want to accept, remove, reorder, or add statistics; and
+- wait for your explicit confirmation before writing the local file.
 
-Cursor will create or update `.config/summary.ini` with exact names from the
-dataset's Python registry. The ordered format is:
+Recommendations are starting points, not mandatory or automatic choices.
+There is no maximum number of enabled statistics. For contacts, the proposed
+starting configuration is:
 
 ```ini
 [contacts]
 enabled =
-    mean_contacts_per_bin
-    mean_pair_contact_duration
     cumulative_network_connectivity
+    cumulative_network_clustering
+    cumulative_network_degree_variance
 ```
 
-The available names and sections for all datasets are documented in
-`.config/summary.example.ini`. If the relevant selection is missing, empty,
-duplicated, or unknown, the script stops before simulation and reports the
-available names.
+Story models start with total activity, concentration, and temporal
+persistence. Scientist-convention models start with coauthorship coupling,
+citation coupling, and the theory-HEP field effect. The exact names,
+recommendations, and complete option lists are documented in
+`.config/summary.example.ini`.
+
+If none of the existing options captures the feature you care about, run
+`/add-summary-stat` to design and implement one of your own. Use `/add-model`
+to create a model and `/update-model` to revise an existing one. These Cursor
+workflows ask for the necessary statistical specification before editing code.
+
+If the relevant selection is missing, empty, duplicated, or unknown, the
+script stops before simulation, proposes the configuration command, and lists
+the available names.
 
 Once configured, run any of the workshop entry points normally:
 
 ```bash
 python scripts/simulate.py latent_network
 python scripts/inference.py latent_network
+python scripts/report.py latent_network
 python scripts/model-comparison.py reputation_conversation latent_network
 ```
+
+`report.py` trains the inference network and reuses those training simulations
+for the prior-predictive summary pairplot, avoiding a second simulation pass.
+It writes `reports/<model>/report.md` with a model description, a prior table
+containing natural-scale means, standard deviations, and units, the
+prior-predictive and prior/posterior plots, an optional posterior-predictive
+plot, and default inference diagnostics. The inference workload can be
+adjusted with the same options exposed by `inference.py`.
+
+Cursor also exposes `/simulate`, `/inference`, and `/report` workflows. They
+resolve the model, verify the explicit summary selection, run the matching
+script, and report the generated report and figure paths.

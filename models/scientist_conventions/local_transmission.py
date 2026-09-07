@@ -13,6 +13,7 @@ from datasets.scientist_conventions.schema import validate_scientist_context
 from .base import ScientistConventionModel
 from .cultural import (
     CULTURAL_INFERENCE_VARIABLES,
+    CULTURAL_PARAMETER_UNITS,
     build_cultural_prior,
     cultural_probabilities,
 )
@@ -71,6 +72,7 @@ class LocalTransmissionModel(ScientistConventionModel):
         *CULTURAL_INFERENCE_VARIABLES,
         "imitation_probability",
     )
+    parameter_units = CULTURAL_PARAMETER_UNITS
 
     def build_prior(self, **context: Any) -> pm.Model:
         return build_cultural_prior(include_imitation=True, **context)

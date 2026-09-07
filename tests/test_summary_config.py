@@ -5,9 +5,12 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from base.summary_config import (
+    RECOMMENDED_SUMMARY_NAMES,
     SummaryConfigurationError,
     available_summary_names,
+    format_summary_configuration_error,
     load_summary_names,
+    recommended_summary_names,
 )
 from base.summaries import select_summaries
 
@@ -58,9 +61,31 @@ class SummaryConfigurationTests(unittest.TestCase):
                 load_summary_names("contacts", path)
 
         message = str(raised.exception)
-        self.assertIn("Ask Cursor", message)
+        self.assertIn("/configure-summary-stats", message)
         self.assertIn("[contacts]", message)
+        self.assertIn("Recommended starting set:", message)
+        self.assertIn("Available statistics:", message)
         self.assertIn("mean_contacts_per_bin", message)
+        self.assertIn(
+            "enabled =\n        <explicitly chosen registered statistic>",
+            message,
+        )
+
+    def test_formats_only_the_first_error_line_in_red(self) -> None:
+        error = SummaryConfigurationError(
+            "Summary statistics have not been configured.\n"
+            "Ask Cursor to choose summary statistics."
+        )
+
+        colored = format_summary_configuration_error(error, color=True)
+        plain = format_summary_configuration_error(error, color=False)
+
+        self.assertEqual(
+            colored,
+            "\033[31mSummary statistics have not been configured.\033[0m\n"
+            "Ask Cursor to choose summary statistics.",
+        )
+        self.assertEqual(plain, str(error))
 
     def test_rejects_missing_or_invalid_dataset_selection(self) -> None:
         cases = {
@@ -95,6 +120,68 @@ class SummaryConfigurationTests(unittest.TestCase):
             "citation_coupling",
             available_summary_names("scientist_conventions"),
         )
+
+    def test_recommended_sets_are_valid_ordered_registry_subsets(self) -> None:
+        expected = {
+            "contacts": (
+                "cumulative_network_connectivity",
+                "cumulative_network_clustering",
+                "cumulative_network_degree_variance",
+            ),
+            "story_daily": (
+                "total_mentions",
+                "mention_concentration",
+                "mean_story_autocorrelation",
+            ),
+            "scientist_conventions": (
+                "coauthorship_coupling",
+                "citation_coupling",
+                "field_theory_hep",
+            ),
+        }
+
+        self.assertEqual(RECOMMENDED_SUMMARY_NAMES, expected)
+        for dataset, names in expected.items():
+            with self.subTest(dataset=dataset):
+                self.assertEqual(recommended_summary_names(dataset), names)
+                self.assertTrue(
+                    set(names).issubset(available_summary_names(dataset))
+                )
+
+    def test_all_registered_statistics_remain_valid_without_an_upper_limit(
+        self,
+    ) -> None:
+        names = available_summary_names("contacts")
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "summary.ini"
+            path.write_text(
+                "[contacts]\nenabled = " + ", ".join(names) + "\n",
+                encoding="utf-8",
+            )
+
+            selected = load_summary_names("contacts", path)
+
+        self.assertEqual(selected, names)
+
+    def test_stale_degree_cv_name_reports_the_variance_replacement(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "summary.ini"
+            path.write_text(
+                "[contacts]\n"
+                "enabled = "
+                "cumulative_network_degree_coefficient_of_variation\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SummaryConfigurationError) as raised:
+                load_summary_names("contacts", path)
+
+        message = str(raised.exception)
+        self.assertIn(
+            "cumulative_network_degree_coefficient_of_variation",
+            message,
+        )
+        self.assertIn("cumulative_network_degree_variance", message)
 
     def test_selects_functions_in_requested_order(self) -> None:
         first = lambda data: data

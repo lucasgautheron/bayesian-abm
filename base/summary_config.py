@@ -24,10 +24,40 @@ AVAILABLE_SUMMARY_NAMES: Final[dict[str, tuple[str, ...]]] = {
     STORY_DATASET: tuple(STORY_SUMMARY_STATISTICS),
     SCIENTIST_CONVENTIONS_DATASET: tuple(SCIENTIST_SUMMARY_NAMES),
 }
+RECOMMENDED_SUMMARY_NAMES: Final[dict[str, tuple[str, ...]]] = {
+    "contacts": (
+        "cumulative_network_connectivity",
+        "cumulative_network_clustering",
+        "cumulative_network_degree_variance",
+    ),
+    STORY_DATASET: (
+        "total_mentions",
+        "mention_concentration",
+        "mean_story_autocorrelation",
+    ),
+    SCIENTIST_CONVENTIONS_DATASET: (
+        "coauthorship_coupling",
+        "citation_coupling",
+        "field_theory_hep",
+    ),
+}
 
 
 class SummaryConfigurationError(ValueError):
     """An actionable error in the attendee's local summary selection."""
+
+
+def format_summary_configuration_error(
+    error: SummaryConfigurationError,
+    *,
+    color: bool,
+) -> str:
+    """Format the first error line in red for an interactive terminal."""
+
+    lines = str(error).splitlines()
+    if color and lines:
+        lines[0] = f"\033[31m{lines[0]}\033[0m"
+    return "\n".join(lines)
 
 
 def available_summary_names(dataset: str) -> tuple[str, ...]:
@@ -42,6 +72,23 @@ def available_summary_names(dataset: str) -> tuple[str, ...]:
         ) from exc
 
 
+def recommended_summary_names(dataset: str) -> tuple[str, ...]:
+    """Return the validated recommended starting set for one dataset."""
+
+    available = available_summary_names(dataset)
+    try:
+        recommended = RECOMMENDED_SUMMARY_NAMES[dataset]
+    except KeyError as exc:
+        raise ValueError(
+            f"no recommended summary statistics for dataset {dataset!r}"
+        ) from exc
+    return validate_summary_names(
+        recommended,
+        available,
+        label=f"recommended {dataset} summary",
+    )
+
+
 def _configuration_error(
     detail: str,
     *,
@@ -49,16 +96,17 @@ def _configuration_error(
     path: Path,
     available: tuple[str, ...],
 ) -> SummaryConfigurationError:
-    example = "\n        ".join(available)
+    recommended = recommended_summary_names(dataset)
     return SummaryConfigurationError(
         f"{detail}\n"
-        f"Ask Cursor to choose summary statistics for dataset {dataset!r} "
-        f"and update {path}.\n"
+        f"Run /configure-summary-stats in Cursor to choose statistics for "
+        f"dataset {dataset!r} and update {path}.\n"
+        f"Recommended starting set: {', '.join(recommended)}\n"
         f"Available statistics: {', '.join(available)}\n"
         f"Expected format:\n"
         f"[{dataset}]\n"
         f"enabled =\n"
-        f"        {example}"
+        f"        <explicitly chosen registered statistic>"
     )
 
 
@@ -125,7 +173,10 @@ def load_summary_names(
 __all__ = [
     "AVAILABLE_SUMMARY_NAMES",
     "DEFAULT_SUMMARY_CONFIG_PATH",
+    "RECOMMENDED_SUMMARY_NAMES",
     "SummaryConfigurationError",
     "available_summary_names",
+    "format_summary_configuration_error",
     "load_summary_names",
+    "recommended_summary_names",
 ]

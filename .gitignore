@@ -75,3 +75,4 @@ data/scientist_conventions/source/
 
 # Generated plots and diagnostics
 /output/
+/reports/

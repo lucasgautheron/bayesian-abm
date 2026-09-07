@@ -48,6 +48,10 @@ class StoryCompetitionModel(StoryModel):
         "beta_appeal",
         "reinforcement",
     )
+    parameter_units = {
+        "story_rate": "stories per day",
+        "report_rate": "mentions per day",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

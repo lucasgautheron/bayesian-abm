@@ -34,6 +34,11 @@ class LatentNetworkGravityConstantRateModel(ContactModel):
         "mu_ratio",
         "eta",
     )
+    parameter_units = {
+        "group_rate": "groups",
+        "start_rate": "per minute",
+        "mean_duration_minutes": "minutes",
+    }
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context
