@@ -8,6 +8,7 @@ from .contacts import (
     LatentNetworkGravityConstantRateModel,
     LatentNetworkGravityModel,
     LatentNetworkModel,
+    RandomWalkModel,
     ReputationConversationModel,
     SpatialConversationModel,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
     "MODEL_REGISTRIES",
+    "RandomWalkModel",
     "ReputationConversationModel",
     "SCIENTIST_MODEL_CLASSES",
     "SCIENTIST_MODEL_REGISTRY",

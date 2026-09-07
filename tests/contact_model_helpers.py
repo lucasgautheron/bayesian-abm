@@ -39,6 +39,10 @@ class FakePyMC:
         return cls._add("Beta", name, **kwargs)
 
     @classmethod
+    def Bernoulli(cls, name: str, **kwargs: object) -> object:
+        return cls._add("Bernoulli", name, **kwargs)
+
+    @classmethod
     def Exponential(cls, name: str, **kwargs: object) -> object:
         return cls._add("Exponential", name, **kwargs)
 

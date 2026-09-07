@@ -10,6 +10,7 @@ from .latent_network_gravity import LatentNetworkGravityModel
 from .latent_network_gravity_constant_rate import (
     LatentNetworkGravityConstantRateModel,
 )
+from .random_walk import RandomWalkModel
 from .reputation import ReputationConversationModel
 from .spatial_conversation import SpatialConversationModel
 
@@ -22,6 +23,7 @@ MODEL_CLASSES: tuple[type[Model], ...] = (
     LatentNetworkGravityConstantRateModel,
     GroupOccupancyModel,
     SpatialConversationModel,
+    RandomWalkModel,
 )
 MODEL_REGISTRY: dict[str, type[Model]] = {
     model.name: model for model in MODEL_CLASSES
@@ -43,6 +45,7 @@ __all__ = [
     "LatentNetworkModel",
     "MODEL_CLASSES",
     "MODEL_REGISTRY",
+    "RandomWalkModel",
     "ReputationConversationModel",
     "SpatialConversationModel",
 ]

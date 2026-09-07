@@ -13,6 +13,7 @@ SKILL_NAMES = (
     "simulate",
     "inference",
     "report",
+    "test",
 )
 
 
@@ -46,6 +47,16 @@ class CursorSkillTests(unittest.TestCase):
                 text = path.read_text(encoding="utf-8")
                 self.assertIn(f"python scripts/{name}.py <model>", text)
                 self.assertIn("/configure-summary-stats", text)
+
+    def test_local_test_skill_runs_the_diagnostic_script(self) -> None:
+        text = (
+            ROOT / ".cursor" / "skills" / "test" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("python scripts/test.py", text)
+        self.assertIn("python scripts/test.py --verbose", text)
+        self.assertIn("independent of workshop datasets", text)
+        self.assertIn("Ask before installing packages", text)
 
     def test_report_skill_requires_markdown_and_reuses_training_data(
         self,

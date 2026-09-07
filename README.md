@@ -89,6 +89,7 @@ counterpart.
 
 | Task | Cursor | Manual / CLI |
 | --- | --- | --- |
+| Test the local workflow | `/test` | `python scripts/test.py` |
 | Configure summary statistics | `/configure-summary-stats [MODEL_OR_DATASET]` | Copy `.config/summary.example.ini` to `.config/summary.ini`, then edit the selected dataset's `enabled` list. |
 | Add a summary statistic | `/add-summary-stat` | Follow the [summary-statistic workflow](SKILLS/add-summary-statistic/SKILL.md) manually. |
 | Add a model | `/add-model` | Follow the [model workflow](SKILLS/add-new-model/SKILL.md) manually. |
@@ -101,6 +102,12 @@ counterpart.
 
 Use `python scripts/<command>.py --help` to list the options accepted by a CLI
 command.
+
+`/test` is a fast environment and workflow smoke test. It runs a tiny
+simulation and BayesFlow inference pipeline with an in-memory dummy model and
+dummy observations, so it does not require workshop data or
+`.config/summary.ini`. If a stage fails, it reports the first problem and a
+targeted setup action.
 
 ## Choose summary statistics before running a workshop script
 
