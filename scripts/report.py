@@ -1,4 +1,4 @@
-"""Generate all simulation and inference figures for one registered model.
+"""Generate a Markdown report and figures for one registered model.
 
 Example:
     python scripts/report.py latent_network
@@ -18,13 +18,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from base.observations import load_observations
+from base.reporting import summarize_priors, write_report_markdown
 from base.summary_config import (
     SummaryConfigurationError,
     format_summary_configuration_error,
     load_summary_names,
 )
-from base.observations import load_observations
-from base.reporting import summarize_priors, write_report_markdown
 from models import resolve_model
 from scripts.inference import run_inference
 
@@ -86,8 +86,8 @@ def run_report(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run prior-predictive simulation and posterior inference, then "
-            "save all figures in one model report directory."
+            "Train one simulation-based inference workflow and save its "
+            "Markdown report and figures in one directory."
         )
     )
     parser.add_argument(

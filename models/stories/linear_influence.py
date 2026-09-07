@@ -67,7 +67,7 @@ class LinearInfluenceModel(StoryModel):
     parameter_units = {
         "story_rate": "stories per day",
         "background_rate": "mentions per day",
-        "seed_scale": "mentions per day",
+        "seed_scale": "mentions",
         "influence_decay": "per day",
     }
 

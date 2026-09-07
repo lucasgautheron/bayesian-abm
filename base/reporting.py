@@ -132,6 +132,9 @@ def _distribution_summary(variable: Any) -> tuple[str, float, float]:
     if operation_name == "halfnormal" and parameters[0] == 0.0:
         displayed_names = ("sigma",)
         displayed_parameters = parameters[1:]
+    elif operation_name == "exponential":
+        displayed_names = ("lam",)
+        displayed_parameters = (1.0 / parameters[0],)
     arguments = ", ".join(
         f"{name}={_format_number(value)}"
         for name, value in zip(displayed_names, displayed_parameters)
@@ -153,18 +156,20 @@ def summarize_priors(
     if unknown:
         raise ValueError(f"inference variables are not in the prior: {unknown}")
     shapes = prior.eval_rv_shapes()
-    return tuple(
-        PriorSummary(
-            name=name,
-            prior=prior_text,
-            mean=mean,
-            sigma=sigma,
-            unit=model.parameter_units.get(name, "—"),
-            shape=tuple(int(size) for size in shapes[name]),
+    summaries: list[PriorSummary] = []
+    for name in names:
+        prior_text, mean, sigma = _distribution_summary(variables[name])
+        summaries.append(
+            PriorSummary(
+                name=name,
+                prior=prior_text,
+                mean=mean,
+                sigma=sigma,
+                unit=model.parameter_units.get(name, "—"),
+                shape=tuple(int(size) for size in shapes[name]),
+            )
         )
-        for name in names
-        for prior_text, mean, sigma in [_distribution_summary(variables[name])]
-    )
+    return tuple(summaries)
 
 
 def model_description(model: Model) -> str:

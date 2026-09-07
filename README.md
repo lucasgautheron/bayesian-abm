@@ -3,6 +3,14 @@
 Code and data for simulation-based Bayesian modelling with PyMC and
 BayesFlow.
 
+## Table of contents
+
+- [Python requirements](#python-requirements)
+- [Installation with Conda (recommended)](#installation-with-conda-recommended)
+- [Installation with `venv`](#installation-with-venv)
+- [Commands](#commands)
+- [Choose summary statistics before running a workshop script](#choose-summary-statistics-before-running-a-workshop-script)
+
 ## Python requirements
 
 This project requires **Python 3.11, 3.12, or 3.13**
@@ -67,6 +75,26 @@ export KERAS_BACKEND=jax
 Set `KERAS_BACKEND=jax` before importing BayesFlow in each new shell, or add it
 to the shell's environment configuration.
 
+## Commands
+
+Run Cursor commands in chat. Run CLI commands from the repository root after
+activating the project environment. `—` means that there is no direct
+counterpart.
+
+| Task | Cursor | Manual / CLI |
+| --- | --- | --- |
+| Configure summary statistics | `/configure-summary-stats [MODEL_OR_DATASET]` | Copy `.config/summary.example.ini` to `.config/summary.ini`, then edit the selected dataset's `enabled` list. |
+| Add a summary statistic | `/add-summary-stat` | Follow the [summary-statistic workflow](SKILLS/add-summary-statistic/SKILL.md) manually. |
+| Add a model | `/add-model` | Follow the [model workflow](SKILLS/add-new-model/SKILL.md) manually. |
+| Update a model | `/update-model` | Update the implementation, registration, and tests manually, following the [model workflow](SKILLS/add-new-model/SKILL.md) for stochastic changes. |
+| Run prior-predictive simulations | `/simulate MODEL [OPTIONS]` | `python scripts/simulate.py MODEL [OPTIONS]` |
+| Run posterior inference | `/inference MODEL [OPTIONS]` | `python scripts/inference.py MODEL [OPTIONS]` |
+| Generate a model report | `/report MODEL [OPTIONS]` | `python scripts/report.py MODEL [OPTIONS]` |
+| Compare models | — | `python scripts/model-comparison.py MODEL [MODEL ...] [OPTIONS]` |
+
+Use `python scripts/<command>.py --help` to list the options accepted by a CLI
+command.
+
 ## Choose summary statistics before running a workshop script
 
 The simulation and inference scripts require an explicit, local selection of
@@ -124,7 +152,3 @@ containing natural-scale means, standard deviations, and units, the
 prior-predictive and prior/posterior plots, an optional posterior-predictive
 plot, and default inference diagnostics. The inference workload can be
 adjusted with the same options exposed by `inference.py`.
-
-Cursor also exposes `/simulate`, `/inference`, and `/report` workflows. They
-resolve the model, verify the explicit summary selection, run the matching
-script, and report the generated report and figure paths.

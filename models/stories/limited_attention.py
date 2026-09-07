@@ -72,6 +72,7 @@ class LimitedAttentionModel(StoryModel):
 
     name = "limited_attention"
     inference_variables = ("p_new", "p_read", "p_memory")
+    parameter_units = {"p_new": "probability per user-step"}
 
     def build_prior(self, **context: Any) -> pm.Model:
         del context

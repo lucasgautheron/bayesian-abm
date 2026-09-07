@@ -63,7 +63,15 @@ class ExampleModel:
     """A concise generative model for reporting tests."""
 
     name = "example_model"
-    inference_variables = ("duration", "lengthscale", "eta", "drift")
+    inference_variables = (
+        "duration",
+        "lengthscale",
+        "eta",
+        "drift",
+        "heterogeneity",
+        "probability",
+        "chance",
+    )
     parameter_units = {
         "duration": "minutes",
         "lengthscale": "minutes",
@@ -78,6 +86,9 @@ class ExampleModel:
                 FakeVariable("lengthscale", "exponential", 60.0),
                 FakeVariable("eta", "pareto", 1.5, 1.0),
                 FakeVariable("drift", "normal", 0.0, 0.05),
+                FakeVariable("heterogeneity", "halfnormal", 0.0, 2.0),
+                FakeVariable("probability", "beta", 2.0, 3.0),
+                FakeVariable("chance", "uniform", 0.0, 1.0),
                 FakeVariable("latent", "normal", 0.0, 1.0),
             ]
         )
@@ -96,12 +107,31 @@ class PriorReportingTests(unittest.TestCase):
         self.assertAlmostEqual(by_name["duration"].mean, 3.3994453592)
         self.assertAlmostEqual(by_name["duration"].sigma, 1.8117015996)
         self.assertEqual(by_name["duration"].unit, "minutes")
+        self.assertEqual(
+            by_name["lengthscale"].prior,
+            "Exponential(lam=0.0167)",
+        )
         self.assertEqual(by_name["lengthscale"].mean, 60.0)
         self.assertEqual(by_name["lengthscale"].sigma, 60.0)
         self.assertEqual(by_name["eta"].mean, 3.0)
         self.assertTrue(math.isinf(by_name["eta"].sigma))
         self.assertEqual(by_name["eta"].unit, "—")
         self.assertEqual(by_name["drift"].shape, (4,))
+        self.assertEqual(
+            by_name["heterogeneity"].prior,
+            "HalfNormal(sigma=2)",
+        )
+        self.assertAlmostEqual(
+            by_name["heterogeneity"].mean,
+            2.0 * math.sqrt(2.0 / math.pi),
+        )
+        self.assertAlmostEqual(by_name["probability"].mean, 0.4)
+        self.assertAlmostEqual(by_name["probability"].sigma, 0.2)
+        self.assertAlmostEqual(by_name["chance"].mean, 0.5)
+        self.assertAlmostEqual(
+            by_name["chance"].sigma,
+            1.0 / math.sqrt(12.0),
+        )
         self.assertNotIn("latent", by_name)
 
     def test_renders_complete_report_with_dynamic_diagnostics(self) -> None:
