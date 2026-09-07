@@ -1,0 +1,21 @@
+---
+description: Configure local summary-statistic selections for workshop scripts
+alwaysApply: true
+---
+
+# Selecting summary statistics
+
+When the user asks to choose, enable, disable, add, or remove summary
+statistics for a workshop run:
+
+1. Determine the dataset selected by the requested model.
+2. Read that dataset's Python registry in `datasets/<dataset>/summaries.py`.
+3. Create `.config/summary.ini` from `.config/summary.example.ini` if needed.
+4. Update only the relevant dataset section's ordered, multiline `enabled`
+   list. Preserve selections for other datasets.
+5. Use exact registered names and ensure at least one statistic is enabled.
+6. Tell the user which names were selected.
+
+Selection is local configuration. Do not add, remove, or modify Python summary
+implementations or registry entries unless the user explicitly asks to change
+the available statistics.
