@@ -3,13 +3,18 @@
 Code and data for simulation-based Bayesian modelling with PyMC and
 BayesFlow.
 
+![Iterative Bayesian agent-based modeling workflow with Cursor commands](assets/workshop-workflow.svg)
+
+The workshop follows an iterative model-building cycle. Cursor command labels
+show the workflow available at each stage; `/report` combines simulation,
+inference, and diagnostics once a model is ready to evaluate.
+
 ## Table of contents
 
 - [Python requirements](#python-requirements)
 - [Installation with Conda (recommended)](#installation-with-conda-recommended)
 - [Installation with `venv`](#installation-with-venv)
 - [Commands](#commands)
-- [Workflow](#workflow)
 - [Choose summary statistics before running a workshop script](#choose-summary-statistics-before-running-a-workshop-script)
 
 ## Python requirements
@@ -96,14 +101,6 @@ counterpart.
 
 Use `python scripts/<command>.py --help` to list the options accepted by a CLI
 command.
-
-## Workflow
-
-The workshop follows an iterative model-building cycle. Cursor command labels
-show the workflow available at each stage; `/report` combines simulation,
-inference, and diagnostics once a model is ready to evaluate.
-
-![Iterative Bayesian agent-based modeling workflow with Cursor commands](assets/workshop-workflow.svg)
 
 ## Choose summary statistics before running a workshop script
 
