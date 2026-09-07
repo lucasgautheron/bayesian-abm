@@ -1,4 +1,4 @@
-# Bayesian modelling
+# Bayesian agent-based modeling
 
 Code and data for simulation-based Bayesian modelling with PyMC and
 BayesFlow.
