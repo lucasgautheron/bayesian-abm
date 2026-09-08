@@ -13,7 +13,10 @@ sys.modules.setdefault("pymc", ModuleType("pymc"))
 
 from base.reporting import (
     PriorSummary,
+    SummaryStatisticRow,
+    describe_summary_statistic,
     render_report_markdown,
+    summarize_observation_statistics,
     summarize_priors,
 )
 
@@ -138,6 +141,18 @@ class PriorReportingTests(unittest.TestCase):
         markdown = render_report_markdown(
             model=ExampleModel(),
             summary_names=("connectivity", "clustering"),
+            summary_rows=(
+                SummaryStatisticRow(
+                    name="connectivity",
+                    description="Density of the contact network",
+                    value=0.25,
+                ),
+                SummaryStatisticRow(
+                    name="clustering",
+                    description="Mean local clustering",
+                    value=0.125,
+                ),
+            ),
             priors=(
                 PriorSummary(
                     name="duration",
@@ -158,6 +173,7 @@ class PriorReportingTests(unittest.TestCase):
 
         for heading in (
             "## Model description",
+            "## Summary statistics",
             "## Parameters and prior distributions",
             "## Prior-predictive summary statistics",
             "## Prior and posterior parameter distributions",
@@ -165,6 +181,9 @@ class PriorReportingTests(unittest.TestCase):
             "## Inference and identification diagnostics",
         ):
             self.assertIn(heading, markdown)
+        self.assertIn("| Statistic | Description | Value |", markdown)
+        self.assertIn("| `connectivity` | Density of the contact network | 0.25 |", markdown)
+        self.assertIn("| `clustering` | Mean local clustering | 0.125 |", markdown)
         self.assertIn("| Parameter | Prior | Mean | Sigma | Unit |", markdown)
         self.assertIn("| `duration` |", markdown)
         self.assertIn("| 3.4 | 1.81 | minutes |", markdown)
@@ -176,13 +195,44 @@ class PriorReportingTests(unittest.TestCase):
             "(diagnostics/calibration_ecdf.png)",
             markdown,
         )
+        self.assertIn("### Calibration ECDF", markdown)
         self.assertIn("misspecification", markdown)
         self.assertIn("missidentification", markdown)
+        self.assertNotIn("maps micro-level behavioral assumptions", markdown)
+
+    def test_builds_rows_from_loaded_observation_conditions(self) -> None:
+        rows = summarize_observation_statistics(
+            ("cumulative_network_connectivity",),
+            {"cumulative_network_connectivity": np.array([[0.375]])},
+            dataset="contacts",
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].name, "cumulative_network_connectivity")
+        self.assertEqual(
+            rows[0].description,
+            "The density of the cumulative binary contact network",
+        )
+        self.assertAlmostEqual(rows[0].value, 0.375)
+        self.assertEqual(
+            describe_summary_statistic(
+                "contacts",
+                "cumulative_network_clustering",
+            ),
+            "Mean local clustering of the cumulative contact network",
+        )
 
     def test_marks_disabled_optional_sections(self) -> None:
         markdown = render_report_markdown(
             model=ExampleModel(),
             summary_names=("connectivity",),
+            summary_rows=(
+                SummaryStatisticRow(
+                    name="connectivity",
+                    description="Density of the contact network",
+                    value=0.5,
+                ),
+            ),
             priors=(),
             plot_names=("simulations", "posterior"),
         )

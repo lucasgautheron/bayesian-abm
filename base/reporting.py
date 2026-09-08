@@ -26,6 +26,15 @@ class PriorSummary:
     shape: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class SummaryStatisticRow:
+    """Observed scalar used for simulation-based inference."""
+
+    name: str
+    description: str
+    value: float
+
+
 MomentFunction = Callable[[tuple[float, ...]], tuple[float, float]]
 
 
@@ -181,6 +190,89 @@ def model_description(model: Model) -> str:
     return " ".join(description.split())
 
 
+_SCIENTIST_SUMMARY_DESCRIPTIONS = {
+    "field_phenomenology_hep": (
+        "Fitted Ising field for high-energy phenomenology"
+    ),
+    "field_theory_hep": "Fitted Ising field for high-energy theory",
+    "field_gravitation_cosmology": (
+        "Fitted Ising field for gravitation and cosmology"
+    ),
+    "field_astrophysics": "Fitted Ising field for astrophysics",
+    "coauthorship_coupling": (
+        "Fitted coupling along the coauthorship network"
+    ),
+    "citation_coupling": "Fitted coupling along the citation network",
+}
+
+_DIAGNOSTIC_LABELS = {
+    "calibration_ecdf": ("Calibration ECDF", "calibration ECDF"),
+    "z_score_contraction": ("Z-score contraction", "z-score contraction"),
+}
+
+
+def _description_from_docstring(function: Any, name: str) -> str:
+    documentation = inspect.getdoc(function)
+    if not documentation:
+        return name.replace("_", " ")
+    sentence = documentation.split(".", 1)[0].strip()
+    if sentence.lower().startswith("return "):
+        sentence = sentence[7:].strip()
+        if sentence:
+            sentence = sentence[0].upper() + sentence[1:]
+    return sentence or name.replace("_", " ")
+
+
+def describe_summary_statistic(dataset: str, name: str) -> str:
+    """Return a short description grounded in the statistic's implementation."""
+
+    if dataset == "scientist_conventions":
+        try:
+            return _SCIENTIST_SUMMARY_DESCRIPTIONS[name]
+        except KeyError:
+            return name.replace("_", " ")
+    if dataset == "contacts":
+        from datasets.contacts import summaries as contact_summaries
+
+        return _description_from_docstring(
+            getattr(contact_summaries, name),
+            name,
+        )
+    if dataset == "story_daily":
+        from datasets.story_daily.summaries import STORY_SUMMARY_STATISTICS
+
+        return _description_from_docstring(
+            STORY_SUMMARY_STATISTICS[name],
+            name,
+        )
+    raise ValueError(f"unknown dataset {dataset!r}")
+
+
+def summarize_observation_statistics(
+    summary_names: Sequence[str],
+    conditions: Mapping[str, Any],
+    *,
+    dataset: str,
+) -> tuple[SummaryStatisticRow, ...]:
+    """Build table rows from the same conditions used for inference."""
+
+    rows: list[SummaryStatisticRow] = []
+    for name in summary_names:
+        if name not in conditions:
+            raise ValueError(f"missing observed summary {name!r}")
+        array = np.asarray(conditions[name], dtype=np.float64)
+        if array.size != 1:
+            raise ValueError(f"observed summary {name!r} must be scalar")
+        rows.append(
+            SummaryStatisticRow(
+                name=name,
+                description=describe_summary_statistic(dataset, name),
+                value=float(array.reshape(-1)[0]),
+            )
+        )
+    return tuple(rows)
+
+
 def _escape_table_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
 
@@ -205,17 +297,49 @@ def _figure_or_note(
     return f"*{disabled_note}*"
 
 
+def _format_summary_value(value: float) -> str:
+    if math.isnan(value):
+        return "undefined"
+    if math.isinf(value):
+        return "∞" if value > 0 else "−∞"
+    return f"{value:.6g}"
+
+
+def _diagnostic_labels(name: str) -> tuple[str, str]:
+    try:
+        return _DIAGNOSTIC_LABELS[name]
+    except KeyError:
+        label = name.replace("_", " ")
+        return label[:1].upper() + label[1:], label
+
+
 def render_report_markdown(
     *,
     model: Model,
     summary_names: Sequence[str],
+    summary_rows: Sequence[SummaryStatisticRow],
     priors: Sequence[PriorSummary],
     plot_names: Sequence[str],
 ) -> str:
     """Render a complete model report using workshop terminology."""
 
+    if tuple(row.name for row in summary_rows) != tuple(summary_names):
+        raise ValueError("summary rows must match the configured names")
+
     available = set(plot_names)
     summaries = ", ".join(f"`{name}`" for name in summary_names)
+    statistic_rows = [
+        "| Statistic | Description | Value |",
+        "| --- | --- | ---: |",
+    ]
+    statistic_rows.extend(
+        "| `{}` | {} | {} |".format(
+            _escape_table_cell(row.name),
+            _escape_table_cell(row.description),
+            _format_summary_value(row.value),
+        )
+        for row in summary_rows
+    )
     rows = [
         "| Parameter | Prior | Mean | Sigma | Unit |",
         "| --- | --- | ---: | ---: | --- |",
@@ -239,8 +363,7 @@ def render_report_markdown(
     diagnostics = (
         "\n\n".join(
             "### {}\n\n![{} diagnostic](diagnostics/{}.png)".format(
-                name.replace("_", " ").title(),
-                name.replace("_", " "),
+                *_diagnostic_labels(name),
                 name,
             )
             for name in diagnostic_names
@@ -253,9 +376,12 @@ def render_report_markdown(
     sections = [
         f"# Model report: {model.name.replace('_', ' ').title()}",
         "## Model description\n\n"
-        f"{model_description(model)} This probabilistic program maps "
-        "micro-level behavioral assumptions and parameter values to a "
-        "synthetic outcome with the same basic structure as the observed data.",
+        f"{model_description(model)}",
+        "## Summary statistics\n\n"
+        "Summary statistics reduce the observed data to the scalar features "
+        "used for simulation-based inference. The values below are computed "
+        "from the observed dataset.\n\n"
+        + "\n".join(statistic_rows),
         "## Parameters and prior distributions\n\n"
         "Parameters describe individual or population traits, strategies, "
         "environmental features, or latent social structure. Their priors are "
@@ -316,6 +442,7 @@ def write_report_markdown(
     *,
     model: Model,
     summary_names: Sequence[str],
+    summary_rows: Sequence[SummaryStatisticRow],
     priors: Sequence[PriorSummary],
     plot_names: Sequence[str],
 ) -> None:
@@ -325,6 +452,7 @@ def write_report_markdown(
         render_report_markdown(
             model=model,
             summary_names=summary_names,
+            summary_rows=summary_rows,
             priors=priors,
             plot_names=plot_names,
         ),
@@ -334,8 +462,11 @@ def write_report_markdown(
 
 __all__ = [
     "PriorSummary",
+    "SummaryStatisticRow",
+    "describe_summary_statistic",
     "model_description",
     "render_report_markdown",
+    "summarize_observation_statistics",
     "summarize_priors",
     "write_report_markdown",
 ]

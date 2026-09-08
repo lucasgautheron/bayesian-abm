@@ -25,6 +25,11 @@ class ReportTests(unittest.TestCase):
         posterior_figure = object()
         diagnostic_figure = object()
         prior_rows = (object(),)
+        summary_rows = (object(),)
+        conditions = {
+            "cumulative_network_connectivity": object(),
+            "cumulative_network_clustering": object(),
+        }
 
         with TemporaryDirectory() as directory:
             destination = Path(directory) / "custom-report"
@@ -42,12 +47,19 @@ class ReportTests(unittest.TestCase):
                 ) as load_names,
                 patch(
                     "scripts.report.load_observations",
-                    return_value=SimpleNamespace(context={"n_agents": 4}),
+                    return_value=SimpleNamespace(
+                        context={"n_agents": 4},
+                        conditions=conditions,
+                    ),
                 ) as load_observations,
                 patch(
                     "scripts.report.summarize_priors",
                     return_value=prior_rows,
                 ) as summarize,
+                patch(
+                    "scripts.report.summarize_observation_statistics",
+                    return_value=summary_rows,
+                ) as summarize_statistics,
                 patch(
                     "scripts.report.run_inference",
                     return_value={
@@ -82,6 +94,11 @@ class ReportTests(unittest.TestCase):
                 summary_names=summary_names,
             )
             summarize.assert_called_once()
+            summarize_statistics.assert_called_once_with(
+                summary_names,
+                conditions,
+                dataset="contacts",
+            )
             inference.assert_called_once_with(
                 "latent_network",
                 output_path=destination / "posterior.png",
@@ -103,6 +120,10 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(
                 write_markdown.call_args.args,
                 (destination / "report.md",),
+            )
+            self.assertEqual(
+                write_markdown.call_args.kwargs["summary_rows"],
+                summary_rows,
             )
 
         self.assertEqual(

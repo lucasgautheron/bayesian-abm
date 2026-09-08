@@ -19,7 +19,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from base.observations import load_observations
-from base.reporting import summarize_priors, write_report_markdown
+from base.reporting import (
+    summarize_observation_statistics,
+    summarize_priors,
+    write_report_markdown,
+)
 from base.summary_config import (
     SummaryConfigurationError,
     format_summary_configuration_error,
@@ -53,6 +57,11 @@ def run_report(
         summary_names=summary_names,
     )
     priors = summarize_priors(model, observations.context)
+    summary_rows = summarize_observation_statistics(
+        summary_names,
+        observations.conditions,
+        dataset=model.dataset,
+    )
     destination = report_dir or ROOT / "reports" / model_name
     destination.mkdir(parents=True, exist_ok=True)
 
@@ -77,6 +86,7 @@ def run_report(
         destination / "report.md",
         model=model,
         summary_names=summary_names,
+        summary_rows=summary_rows,
         priors=priors,
         plot_names=tuple(inference_plots),
     )

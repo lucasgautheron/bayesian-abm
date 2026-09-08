@@ -6,11 +6,18 @@ disable-model-invocation: true
 
 # Generate a model report
 
+Do not import or execute the project's scientific Python stack on the local
+machine. Distant `/report` must succeed when only the remote helper and AWS
+or SSH tools are available locally. Read source and generated files instead
+of running `models`, `base.observations`, or `scripts.report` here.
+
 1. Obtain a registered model name if the user did not provide one.
-2. Resolve it through `models.MODEL_REGISTRY` and identify its dataset.
-3. Check that `.config/summary.ini` contains a valid explicit selection for
-   that dataset. If not, stop and invite the participant to run
-   `/configure-summary-stats`; never select statistics silently.
+2. Resolve it by reading `models/__init__.py` and the model's module; identify
+   its dataset from that source. Do not `import models` locally.
+3. Read `.config/summary.ini` and confirm that dataset section lists at least
+   one enabled registered name. If not, stop and invite the participant to
+   run `/configure-summary-stats`; never select statistics silently. Do not
+   run local Python to validate the file.
 4. Run the command on the shared instance, falling back to the local machine
    if SSH is unavailable:
 
@@ -28,20 +35,16 @@ disable-model-invocation: true
 
    The prior-predictive summary pairplot reuses the inference network's
    training simulations; do not run `scripts/simulate.py` separately.
-5. Use [`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md) as the canonical structure
-   for the generated `report.md`. Preserve its section order, headings, fixed
-   explanatory prose, and figure link labels instead of drafting them again.
-   Replace every `{{PLACEHOLDER}}` with the generated model-specific content
-   and leave no placeholder syntax behind. Omit a section only when its
-   optional figure was not generated; never leave a broken figure link. Never
-   omit `## Summary statistics`. Populate `{{SUMMARY_STATISTIC_ROWS}}` with one
-   Markdown table row per enabled statistic, in configured order. Each row
-   must contain the exact registry name, a short plain-language description
-   grounded in the dataset's summary implementation, and the scalar value
-   computed from the observed dataset. Read values from the same loaded
-   observation conditions used for inference; do not substitute simulated,
-   prior-predictive, or posterior-predictive values. Use enough significant
-   digits to make the value informative and escape Markdown table delimiters.
+   `scripts/report.py` writes a complete `report.md` on the machine that
+   runs it, including observed summary-statistic rows taken from the same
+   loaded conditions used for inference.
+5. After the command exits, read the generated `reports/<model>/report.md`
+   and figure files. Use [`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md) only as
+   the checklist for section order, headings, fixed explanatory prose, and
+   figure link labels. Do not recompute observed summary values, prior
+   moments, or other table cells with local Python. If a required table or
+   figure is missing, report that the run was incomplete; do not try to
+   finish those calculations locally.
 6. Rewrite only the `## Model description` paragraph in the generated
    `report.md` after inspecting the selected model's simulator and any helpers
    that define its process. In two to four concrete sentences, explain in
@@ -53,8 +56,8 @@ disable-model-invocation: true
    model's class docstring or add generic boilerplate such as saying that the
    program maps assumptions to synthetic data.
 7. Verify that `report.md` contains one complete summary-statistic row for
-   every enabled name and verify every linked figure. Then report the report
-   path, enabled summary names, and generated figure paths.
+   every enabled name and verify every linked figure file exists. Then report
+   the report path, enabled summary names, and generated figure paths.
 8. If execution fails after producing some figures, identify the completed and
    failed stage without deleting partial results.
 
