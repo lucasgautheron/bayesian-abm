@@ -21,17 +21,17 @@ inference, and diagnostics once a model is ready to evaluate.
 
 Run these commands in chat.
 
-| Task | Command |
-| --- | --- |
-| Test SSH to the shared instance | `/test` |
-| Configure summary statistics | `/configure-summary-stats [MODEL_OR_DATASET]` |
-| Add a summary statistic | `/add-summary-stat` |
-| Add a model | `/add-model` |
-| Update a model | `/update-model` |
-| Run prior-predictive simulations | `/simulate MODEL [OPTIONS]` |
-| Run posterior inference | `/inference MODEL [OPTIONS]` |
-| Generate a model report | `/report MODEL [OPTIONS]` |
-| Submit a model and report | `/submission MODEL` |
+| Task | Command | Output |
+| --- | --- | --- |
+| Test SSH to the shared instance | `/test` | Chat only |
+| Configure summary statistics | `/configure-summary-stats [MODEL_OR_DATASET]` | `.config/summary.ini` |
+| Add a summary statistic | `/add-summary-stat` | `datasets/<dataset>/summaries.py` and tests |
+| Add a model | `/add-model` | `models/<dataset>/` and tests |
+| Update a model | `/update-model` | Existing model files |
+| Run prior-predictive simulations | `/simulate MODEL [OPTIONS]` | `output/<model>/simulations.png` |
+| Run posterior inference | `/inference MODEL [OPTIONS]` | `output/<model>/` |
+| Generate a model report | `/report MODEL [OPTIONS]` | `reports/<model>/` |
+| Submit a model and report | `/submission MODEL` | `submissions/<model>` branch |
 
 `/test` probes SSH to the [shared AWS instance](scripts/aws/README.md).
 It does not run a local simulation or inference smoke test. A failed
