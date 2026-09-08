@@ -32,6 +32,8 @@ MANIFEST
 !.env.example
 .envrc
 .config/summary.ini
+.config/aws-instance.json
+.config/aws-ssh/
 .venv/
 .venv*/
 env/
