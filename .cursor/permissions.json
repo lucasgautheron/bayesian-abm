@@ -1,0 +1,8 @@
+{
+  "autoRun": {
+    "allow_instructions": [
+      "Allow workshop Python scripts under scripts/, including scripts/simulate.py, scripts/inference.py, scripts/report.py, scripts/test.py, and scripts/aws/remote.py.",
+      "Allow those commands to use the network and to leave the sandbox when multiprocessing or matplotlib need it."
+    ]
+  }
+}

@@ -53,11 +53,11 @@ class SummaryPairplotTests(unittest.TestCase):
                 {"vector": np.array([1.0, 3.0])}
             )
 
-    def test_cpus_defaults_to_one(self) -> None:
+    def test_cpus_defaults_to_four(self) -> None:
         with patch.object(sys, "argv", ["simulate.py", "latent_network"]):
             args = parse_args()
 
-        self.assertEqual(args.cpus, 1)
+        self.assertEqual(args.cpus, 4)
 
     def test_rejects_non_positive_cpus(self) -> None:
         with self.assertRaisesRegex(ValueError, "cpus"):

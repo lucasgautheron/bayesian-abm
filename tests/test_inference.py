@@ -18,6 +18,7 @@ from scripts.inference import (
     parse_args,
     plot_training_summary_pairplot,
     posterior_parameter_draws,
+    prior_predictive_from_training,
     run_inference,
     sample_observations,
 )
@@ -95,11 +96,11 @@ class PosteriorPlotDataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cpus"):
             run_inference("latent_network", cpus=0)
 
-    def test_cpus_defaults_to_one(self) -> None:
+    def test_cpus_defaults_to_four(self) -> None:
         with patch.object(sys, "argv", ["inference.py", "latent_network"]):
             args = parse_args()
 
-        self.assertEqual(args.cpus, 1)
+        self.assertEqual(args.cpus, 4)
 
     def test_requires_local_summary_selection_by_default(self) -> None:
         with (
@@ -210,6 +211,26 @@ class PosteriorPlotDataTests(unittest.TestCase):
             [text.get_text() for text in figure.legends[0].get_texts()],
             ["Prior predictive", "Posterior predictive", "Observed"],
         )
+
+    def test_prior_predictive_reuses_training_summaries(self) -> None:
+        training_data = {
+            "theta": np.arange(4.0),
+            "connectivity": np.linspace(0.1, 0.4, 4),
+            "clustering": np.linspace(0.2, 0.5, 4),
+        }
+
+        reused = prior_predictive_from_training(
+            training_data,
+            ("connectivity", "clustering"),
+        )
+
+        self.assertEqual(set(reused), {"connectivity", "clustering"})
+        np.testing.assert_array_equal(
+            reused["connectivity"],
+            training_data["connectivity"],
+        )
+        with self.assertRaisesRegex(ValueError, "missing summaries"):
+            prior_predictive_from_training(training_data, ("absent",))
 
     def test_training_summaries_make_prior_predictive_pairplot(self) -> None:
         observations = SimpleNamespace(

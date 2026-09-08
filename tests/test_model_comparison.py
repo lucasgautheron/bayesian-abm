@@ -165,7 +165,7 @@ class ModelComparisonTests(unittest.TestCase):
                 cpus=0,
             )
 
-    def test_cpus_defaults_to_one(self) -> None:
+    def test_cpus_defaults_to_four(self) -> None:
         with patch.object(
             sys,
             "argv",
@@ -177,7 +177,7 @@ class ModelComparisonTests(unittest.TestCase):
         ):
             args = model_comparison.parse_args()
 
-        self.assertEqual(args.cpus, 1)
+        self.assertEqual(args.cpus, 4)
 
     def test_requires_local_summary_selection_by_default(self) -> None:
         models = (

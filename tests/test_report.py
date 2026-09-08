@@ -145,7 +145,7 @@ class ReportTests(unittest.TestCase):
 
         self.assertIsNone(args.report_dir)
         self.assertFalse(hasattr(args, "simulation_runs"))
-        self.assertEqual(args.cpus, 1)
+        self.assertEqual(args.cpus, 4)
 
 
 if __name__ == "__main__":

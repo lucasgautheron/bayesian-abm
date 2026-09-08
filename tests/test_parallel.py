@@ -11,6 +11,7 @@ from scripts.parallel import (
     partition_runs,
     sample_model_comparison_in_processes,
     sample_model_in_processes,
+    simulate_summaries_in_processes,
 )
 
 
@@ -114,6 +115,31 @@ class ParallelSimulationTests(unittest.TestCase):
                 for task in context.pool.tasks
             )
         )
+
+    def test_posterior_predictive_tasks_slice_parameter_draws(self) -> None:
+        with patch(
+            "scripts.parallel._run_tasks_in_processes",
+            return_value={"value": np.zeros((5, 1))},
+        ) as run:
+            simulate_summaries_in_processes(
+                "latent_network",
+                parameters={
+                    "rate": np.arange(5.0),
+                    "scale": np.arange(10.0, 15.0).reshape(5, 1),
+                },
+                summary_names=("first", "second"),
+                seed=7,
+                cpus=2,
+            )
+
+        tasks = run.call_args.args[1]
+        self.assertEqual(run.call_args.args[0], parallel._simulate_summaries_chunk)
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual(tasks[0][1]["rate"].shape, (3,))
+        self.assertEqual(tasks[1][1]["rate"].shape, (2,))
+        self.assertTrue(all(task[2] == ("first", "second") for task in tasks))
+        np.testing.assert_array_equal(tasks[0][1]["rate"], [0.0, 1.0, 2.0])
+        np.testing.assert_array_equal(tasks[1][1]["rate"], [3.0, 4.0])
 
     def test_model_comparison_tasks_include_selected_summaries(self) -> None:
         with patch(

@@ -5,127 +5,68 @@ BayesFlow.
 
 ![Iterative Bayesian agent-based modeling workflow with Cursor commands](assets/workshop-workflow.svg)
 
-The workshop follows an iterative model-building cycle. Cursor command labels
-show the workflow available at each stage; `/report` combines simulation,
+The workshop follows an iterative model-building cycle. Work in Cursor: the
+slash commands below are the main interface. `/report` combines simulation,
 inference, and diagnostics once a model is ready to evaluate.
 
 ## Table of contents
 
-- [Python requirements](#python-requirements)
-- [Installation with Conda (recommended)](#installation-with-conda-recommended)
-- [Installation with `venv`](#installation-with-venv)
-- [Commands](#commands)
-- [Choose summary statistics before running a workshop script](#choose-summary-statistics-before-running-a-workshop-script)
+- [Workshop in Cursor](#workshop-in-cursor)
+- [Choose summary statistics](#choose-summary-statistics)
+- [Shared compute](#shared-compute)
+- [Local installation](#local-installation)
+- [Local CLI](#local-cli)
 
-## Python requirements
+## Workshop in Cursor
 
-This project requires **Python 3.11, 3.12, or 3.13**
-(`>=3.11,<3.14`). This range is imposed by the pinned
-[BayesFlow 2.0.12](https://bayesflow.org/v2.0.12/) dependency. Python 3.12 is
-recommended for the broadest compatibility with the scientific Python stack.
+Run these commands in chat.
 
-## Installation with Conda (recommended)
+| Task | Command |
+| --- | --- |
+| Test SSH to the shared instance | `/test` |
+| Configure summary statistics | `/configure-summary-stats [MODEL_OR_DATASET]` |
+| Add a summary statistic | `/add-summary-stat` |
+| Add a model | `/add-model` |
+| Update a model | `/update-model` |
+| Run prior-predictive simulations | `/simulate MODEL [OPTIONS]` |
+| Run posterior inference | `/inference MODEL [OPTIONS]` |
+| Generate a model report | `/report MODEL [OPTIONS]` |
+| Submit a model and report | `/submission MODEL` |
 
-Conda is useful here for selecting a compatible Python interpreter and keeping
-the compiled scientific dependencies isolated. The project dependencies
-themselves remain installed from `requirements.txt` with pip.
+`/test` probes SSH to the [shared AWS instance](scripts/aws/README.md).
+It does not run a local simulation or inference smoke test. A failed
+probe is a test failure; the instance is not started automatically.
 
-```bash
-conda create --name bayesian-modelling python=3.12 pip
-conda activate bayesian-modelling
+`/simulate`, `/inference`, and `/report` prefer the [shared AWS
+instance](scripts/aws/README.md) (`--cpus 16`) and fall back to this machine
+(`--cpus 4`) if SSH is unavailable.
 
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install jax
-```
+A typical loop:
 
-BayesFlow requires a Keras backend in addition to the packages in
-`requirements.txt`. JAX is the recommended backend in the
-[BayesFlow installation guide](https://bayesflow.org/v2.0.12/). Configure it
-for this Conda environment, then reactivate the environment so that the setting
-takes effect:
+1. `/test` to confirm SSH to the shared instance.
+2. `/configure-summary-stats` for the dataset you are working on.
+3. `/add-model` or `/update-model` as you design the process.
+4. `/simulate`, then `/inference` or `/report`.
+5. `/submission` when the model and report should be handed in.
 
-```bash
-conda env config vars set KERAS_BACKEND=jax
-conda deactivate
-conda activate bayesian-modelling
-```
+`/add-model` and `/add-summary-stat` ask for the statistical specification
+before editing code. `/add-model` follows
+[SKILLS/add-new-model/SKILL.md](SKILLS/add-new-model/SKILL.md);
+`/add-summary-stat` follows
+[SKILLS/add-summary-statistic/SKILL.md](SKILLS/add-summary-statistic/SKILL.md).
 
-The command above installs the standard CPU build of JAX. For an NVIDIA GPU or
-another accelerator, follow the
-[JAX platform-specific installation instructions](https://docs.jax.dev/en/latest/installation.html)
-instead of running `python -m pip install jax`.
+## Choose summary statistics
 
-Verify the environment:
+Simulation and inference need an explicit, local selection of summary
+statistics for the dataset used by the requested model. The selection lives
+in `.config/summary.ini` and is intentionally not committed.
 
-```bash
-python -c "import bayesflow, jax, pymc, keras; print(keras.backend.backend())"
-```
+Run `/configure-summary-stats` and name a model or dataset. Cursor will
+explain the recommended starting set and wait for confirmation before writing
+the file. Recommendations are starting points, not mandatory choices. There
+is no maximum number of enabled statistics.
 
-The command should print `jax`.
-
-## Installation with `venv`
-
-Conda is not required if a compatible Python interpreter is already installed:
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install jax
-export KERAS_BACKEND=jax
-```
-
-Set `KERAS_BACKEND=jax` before importing BayesFlow in each new shell, or add it
-to the shell's environment configuration.
-
-## Commands
-
-Run Cursor commands in chat. Run CLI commands from the repository root after
-activating the project environment. `—` means that there is no direct
-counterpart.
-
-| Task | Cursor | Manual / CLI |
-| --- | --- | --- |
-| Test the local workflow | `/test` | `python scripts/test.py` |
-| Configure summary statistics | `/configure-summary-stats [MODEL_OR_DATASET]` | Copy `.config/summary.example.ini` to `.config/summary.ini`, then edit the selected dataset's `enabled` list. |
-| Add a summary statistic | `/add-summary-stat` | Follow the [summary-statistic workflow](SKILLS/add-summary-statistic/SKILL.md) manually. |
-| Add a model | `/add-model` | Follow the [model workflow](SKILLS/add-new-model/SKILL.md) manually. |
-| Update a model | `/update-model` | Update the implementation, registration, and tests manually, following the [model workflow](SKILLS/add-new-model/SKILL.md) for stochastic changes. |
-| Run prior-predictive simulations | `/simulate MODEL [OPTIONS]` | `python scripts/simulate.py MODEL [OPTIONS]` |
-| Run posterior inference | `/inference MODEL [OPTIONS]` | `python scripts/inference.py MODEL [OPTIONS]` |
-| Generate a model report | `/report MODEL [OPTIONS]` | `python scripts/report.py MODEL [OPTIONS]` |
-| Submit a model and report | `/submission MODEL` | Create `submissions/MODEL`, commit only the model and report files, then push the branch to the remote. |
-| Compare models | — | `python scripts/model-comparison.py MODEL [MODEL ...] [OPTIONS]` |
-
-Use `python scripts/<command>.py --help` to list the options accepted by a CLI
-command.
-
-`/test` is a fast environment and workflow smoke test. It runs a tiny
-simulation and BayesFlow inference pipeline with an in-memory dummy model and
-dummy observations, so it does not require workshop data or
-`.config/summary.ini`. If a stage fails, it reports the first problem and a
-targeted setup action.
-
-## Choose summary statistics before running a workshop script
-
-The simulation and inference scripts require an explicit, local selection of
-summary statistics for the dataset used by the requested model. The selection
-lives in `.config/summary.ini` and is intentionally not committed.
-
-Run `/configure-summary-stats` in Cursor and name a model or dataset. Cursor
-will:
-
-- explain the recommended starting set;
-- list every registered option;
-- ask whether you want to accept, remove, reorder, or add statistics; and
-- wait for your explicit confirmation before writing the local file.
-
-Recommendations are starting points, not mandatory or automatic choices.
-There is no maximum number of enabled statistics. For contacts, the proposed
-starting configuration is:
+For contacts, the proposed starting configuration is:
 
 ```ini
 [contacts]
@@ -142,15 +83,93 @@ recommendations, and complete option lists are documented in
 `.config/summary.example.ini`.
 
 If none of the existing options captures the feature you care about, run
-`/add-summary-stat` to design and implement one of your own. Use `/add-model`
-to create a model and `/update-model` to revise an existing one. These Cursor
-workflows ask for the necessary statistical specification before editing code.
+`/add-summary-stat`. If the relevant selection is missing, empty, duplicated,
+or unknown, the command stops before simulation and proposes
+`/configure-summary-stats`.
 
-If the relevant selection is missing, empty, duplicated, or unknown, the
-script stops before simulation, proposes the configuration command, and lists
-the available names.
+`/report` writes `reports/<model>/report.md` with a model description, a
+summary-statistics table, a prior table, prior-predictive and
+prior/posterior figures, an optional posterior-predictive figure, and
+inference diagnostics. It reuses the inference network's training simulations
+for the prior-predictive pairplot and the prior cloud of the
+posterior-predictive pairplot.
 
-Once configured, run any of the workshop entry points normally:
+## Shared compute
+
+Heavy Cursor commands run on a shared AWS instance when it is reachable.
+Start and stop that instance, instructor setup, credentials, and IAM are
+documented in [scripts/aws/README.md](scripts/aws/README.md).
+
+## Local installation
+
+This project requires **Python 3.11, 3.12, or 3.13**
+(`>=3.11,<3.14`). This range is imposed by the pinned
+[BayesFlow 2.0.12](https://bayesflow.org/v2.0.12/) dependency. Python 3.12 is
+recommended.
+
+### Conda (recommended)
+
+```bash
+conda create --name bayesian-modelling python=3.12 pip
+conda activate bayesian-modelling
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install jax
+```
+
+BayesFlow requires a Keras backend. JAX is the recommended backend in the
+[BayesFlow installation guide](https://bayesflow.org/v2.0.12/). Configure it
+for this Conda environment, then reactivate so the setting takes effect:
+
+```bash
+conda env config vars set KERAS_BACKEND=jax
+conda deactivate
+conda activate bayesian-modelling
+```
+
+The command above installs the standard CPU build of JAX. For an NVIDIA GPU
+or another accelerator, follow the
+[JAX platform-specific installation instructions](https://docs.jax.dev/en/latest/installation.html)
+instead of `python -m pip install jax`.
+
+Verify the environment:
+
+```bash
+python -c "import bayesflow, jax, pymc, keras; print(keras.backend.backend())"
+```
+
+The command should print `jax`.
+
+### `venv`
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install jax
+export KERAS_BACKEND=jax
+```
+
+Set `KERAS_BACKEND=jax` before importing BayesFlow in each new shell, or add
+it to the shell's environment configuration.
+
+## Local CLI
+
+CLI scripts always run on this machine and default to `--cpus 4`. Run them
+from the repository root after activating the project environment.
+`python scripts/<command>.py --help` lists accepted options.
+
+| Task | Command |
+| --- | --- |
+| Test SSH to the shared instance | `python scripts/test.py` |
+| Configure summaries | Copy `.config/summary.example.ini` to `.config/summary.ini` and edit the dataset's `enabled` list |
+| Simulate | `python scripts/simulate.py MODEL [OPTIONS]` |
+| Infer | `python scripts/inference.py MODEL [OPTIONS]` |
+| Report | `python scripts/report.py MODEL [OPTIONS]` |
+| Compare models | `python scripts/model-comparison.py MODEL [MODEL ...] [OPTIONS]` |
 
 ```bash
 python scripts/simulate.py latent_network
@@ -158,11 +177,3 @@ python scripts/inference.py latent_network
 python scripts/report.py latent_network
 python scripts/model-comparison.py reputation_conversation latent_network
 ```
-
-`report.py` trains the inference network and reuses those training simulations
-for the prior-predictive summary pairplot, avoiding a second simulation pass.
-It writes `reports/<model>/report.md` with a model description, a prior table
-containing natural-scale means, standard deviations, and units, the
-prior-predictive and prior/posterior plots, an optional posterior-predictive
-plot, and default inference diagnostics. The inference workload can be
-adjusted with the same options exposed by `inference.py`.

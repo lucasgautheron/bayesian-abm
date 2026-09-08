@@ -1,10 +1,10 @@
 ---
 name: test
-description: Runs the fast local simulation and inference smoke test with a dummy model and data, then diagnoses setup failures. Use only when explicitly invoked with /test.
+description: Probes SSH to the shared workshop instance. Use only when explicitly invoked with /test.
 disable-model-invocation: true
 ---
 
-# Test the local workflow
+# Test SSH communication
 
 1. From the repository root, run:
 
@@ -12,24 +12,22 @@ disable-model-invocation: true
    python scripts/test.py
    ```
 
-2. Report each completed stage and the total runtime. On success, explain that
-   the core simulation and inference workflow works locally; this does not
-   validate a participant's model, observed dataset, or summary selection.
-3. On failure, identify the first failed stage and use the script's `Problem`
-   and `Next step` lines to give one concrete correction. If more evidence is
-   needed, rerun:
+2. Report whether SSH reached the shared instance and the script's `PASS` or
+   `FAIL` line. On success, quote the SSH detail. This does not validate a
+   participant's model,
+   observed dataset, or summary selection.
+3. Do not start, stop, create, or destroy the instance from `/test`. A
+   stopped instance is a failed test; tell the user they can run
+   `python scripts/aws/instance.py start` themselves if they want the box up.
+4. On failure, use the script's `Problem` and `Next step` lines to give one
+   concrete correction. If more evidence is needed, rerun:
 
    ```bash
    python scripts/test.py --verbose
    ```
 
-4. Ask before installing packages, changing environments, or editing
-   configuration. Do not change model behavior, observed data, summary
-   implementations, or `.config/summary.ini` to make this smoke test pass.
-5. After an accepted correction, rerun `python scripts/test.py` and report
-   whether every stage passes. If it still fails, diagnose the new first
-   failure rather than repeating the same correction.
-
-The test is intentionally independent of workshop datasets and local summary
-configuration. It uses fixed seeds, one CPU, temporary artifacts, and a tiny
-in-memory model so it should finish quickly.
+5. Ask before changing AWS resources, installing packages, or editing
+   configuration.
+6. After an accepted correction, rerun `python scripts/test.py` and report
+   whether SSH now passes. If it still fails, diagnose the new failure
+   rather than repeating the same correction.

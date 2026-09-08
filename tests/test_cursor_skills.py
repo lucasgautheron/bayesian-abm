@@ -45,18 +45,23 @@ class CursorSkillTests(unittest.TestCase):
             with self.subTest(name=name):
                 path = ROOT / ".cursor" / "skills" / name / "SKILL.md"
                 text = path.read_text(encoding="utf-8")
+                self.assertIn("scripts/aws/remote.py run --fallback-local", text)
                 self.assertIn(f"python scripts/{name}.py <model>", text)
+                self.assertIn("--cpus 16", text)
+                self.assertIn("--cpus 4", text)
                 self.assertIn("/configure-summary-stats", text)
 
-    def test_local_test_skill_runs_the_diagnostic_script(self) -> None:
+    def test_local_test_skill_runs_the_ssh_probe(self) -> None:
         text = (
             ROOT / ".cursor" / "skills" / "test" / "SKILL.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("python scripts/test.py", text)
         self.assertIn("python scripts/test.py --verbose", text)
-        self.assertIn("independent of workshop datasets", text)
-        self.assertIn("Ask before installing packages", text)
+        self.assertIn("Do not start, stop, create, or destroy", text)
+        self.assertIn("SSH", text)
+        self.assertNotIn("smoke test", text.lower())
+        self.assertNotIn("simulation", text.lower())
 
     def test_report_skill_requires_markdown_and_reuses_training_data(
         self,

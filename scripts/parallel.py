@@ -172,6 +172,97 @@ def sample_model_in_processes(
     )
 
 
+def _parameter_draw_count(parameters: Mapping[str, NDArray[Any]]) -> int:
+    """Return the shared stacked-draw length of ``parameters``."""
+
+    counts = [int(np.asarray(values).shape[0]) for values in parameters.values()]
+    if not counts:
+        raise ValueError("parameter draws are required")
+    if len(set(counts)) != 1:
+        raise ValueError("parameter draws must share a draw axis")
+    return counts[0]
+
+
+def _slice_parameter_draws(
+    parameters: Mapping[str, NDArray[Any]],
+    start: int,
+    stop: int,
+) -> dict[str, NDArray[Any]]:
+    """Return a contiguous slice of stacked parameter draws."""
+
+    return {
+        name: np.asarray(values)[start:stop]
+        for name, values in parameters.items()
+    }
+
+
+def _simulate_summaries_chunk(
+    task: tuple[
+        str,
+        dict[str, NDArray[Any]],
+        tuple[str, ...],
+        np.random.SeedSequence,
+    ],
+) -> dict[str, NDArray[Any]]:
+    """Simulate summaries from one parameter chunk in a worker process."""
+
+    model_name, parameters, summary_names, seed = task
+
+    from base.observations import load_observations
+    from models import resolve_model
+
+    model = resolve_model(model_name)
+    observations = load_observations(
+        model.dataset,
+        summary_names=summary_names,
+    )
+    return model.simulate_summaries(
+        parameters,
+        observations.summaries,
+        seed=seed,
+        progress=(
+            _advance_worker_progress
+            if _WORKER_PROGRESS is not None
+            else None
+        ),
+        **observations.context,
+    )
+
+
+def simulate_summaries_in_processes(
+    model_name: str,
+    *,
+    parameters: Mapping[str, NDArray[Any]],
+    summary_names: Sequence[str],
+    seed: Seed,
+    cpus: int,
+    progress: Callable[[int], object] | None = None,
+) -> dict[str, NDArray[Any]]:
+    """Simulate posterior-predictive summaries in spawned worker processes."""
+
+    n_draws = _parameter_draw_count(parameters)
+    counts = partition_runs(n_draws, cpus)
+    seeds = _seed_sequence(seed).spawn(len(counts))
+    tasks = []
+    start = 0
+    for count, child_seed in zip(counts, seeds):
+        stop = start + count
+        tasks.append(
+            (
+                model_name,
+                _slice_parameter_draws(parameters, start, stop),
+                tuple(summary_names),
+                child_seed,
+            )
+        )
+        start = stop
+    return _run_tasks_in_processes(
+        _simulate_summaries_chunk,
+        tasks,
+        progress=progress,
+    )
+
+
 def _sample_model_comparison_chunk(
     task: tuple[
         tuple[str, ...],
@@ -272,5 +363,6 @@ __all__ = [
     "partition_runs",
     "sample_model_comparison_in_processes",
     "sample_model_in_processes",
+    "simulate_summaries_in_processes",
     "validate_cpus",
 ]

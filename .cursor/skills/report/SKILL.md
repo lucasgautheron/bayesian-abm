@@ -11,13 +11,21 @@ disable-model-invocation: true
 3. Check that `.config/summary.ini` contains a valid explicit selection for
    that dataset. If not, stop and invite the participant to run
    `/configure-summary-stats`; never select statistics silently.
-4. Run `python scripts/report.py <model> --cpus 4` with any user-provided
-   simulation, inference, seed, report-directory, or display options. If the
-   user provides a CPU count, use it instead of `4`. Use script defaults for
-   all other options the user did not specify. Run the command in a visible
+4. Run the command on the shared instance, falling back to the local machine
+   if SSH is unavailable:
+
+   ```bash
+   python scripts/aws/remote.py run --fallback-local -- python scripts/report.py <model>
+   ```
+
+   Append any user-provided simulation, inference, seed, report-directory, or
+   display options. Do not add `--cpus` unless the user asked for one; the
+   remote helper injects `--cpus 16` only when SSH works, and the local
+   script defaults to `--cpus 4` on fallback. Run the command in a visible
    terminal with stdout and stderr attached so progress bars stream while it
-   runs. Do not redirect, capture, or suppress its output; keep monitoring the
-   command until it exits.
+   runs. Do not redirect, capture, or suppress its output; keep monitoring
+   the command until it exits.
+
    The prior-predictive summary pairplot reuses the inference network's
    training simulations; do not run `scripts/simulate.py` separately.
 5. Use [`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md) as the canonical structure

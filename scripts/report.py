@@ -111,8 +111,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cpus",
         type=int,
-        default=1,
-        help="worker processes for simulations (default: 1)",
+        default=4,
+        help="worker processes for simulations (default: 4)",
     )
     parser.add_argument(
         "--show",

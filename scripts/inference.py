@@ -30,7 +30,11 @@ from base.summary_config import (
     load_summary_names,
 )
 from models import resolve_model
-from scripts.parallel import sample_model_in_processes, validate_cpus
+from scripts.parallel import (
+    sample_model_in_processes,
+    simulate_summaries_in_processes,
+    validate_cpus,
+)
 from scripts.simulate import summary_frame
 from visualization.diagnostics import (
     plot_predictive_summary_pairplot,
@@ -138,6 +142,20 @@ def _observed_summary_data(observations: Any) -> Mapping[str, float] | Any:
         if observations.count == 1
         else observed_frame
     )
+
+
+def prior_predictive_from_training(
+    training_data: Mapping[str, np.ndarray],
+    summaries: Sequence[str],
+) -> dict[str, np.ndarray]:
+    """Return prior-predictive summaries already drawn for training."""
+
+    missing = [name for name in summaries if name not in training_data]
+    if missing:
+        raise ValueError(
+            "training data is missing summaries: " + ", ".join(missing)
+        )
+    return {name: np.asarray(training_data[name]) for name in summaries}
 
 
 def plot_training_summary_pairplot(
@@ -260,7 +278,7 @@ def run_inference(
         batch_size=observation_batch_size,
     )
     variable_keys: Sequence[str] = model.inference_variables or ()
-    seeds = np.random.SeedSequence(seed).spawn(3)
+    seeds = np.random.SeedSequence(seed).spawn(2)
     prior = model.sample_prior(
         posterior_draws,
         seed=seeds[0],
@@ -276,25 +294,21 @@ def run_inference(
     if predictive_runs > 0:
         if predictive_runs < 2:
             raise ValueError("predictive runs must be at least 2")
-        with tqdm(
-            total=predictive_runs,
-            desc="Prior predictive",
-            unit="run",
-        ) as progress:
-            prior_simulator = model.to_bayesflow_simulator(
-                summaries,
-                seed=seeds[1],
-                include_parameters=False,
-                progress=progress.update,
-                **context,
+        if num_simulations < 2:
+            raise ValueError(
+                "num_simulations must be at least 2 to reuse training "
+                "simulations as the prior-predictive cloud"
             )
-            prior_simulated = prior_simulator.sample((predictive_runs,))
-        prior_frame = summary_frame(prior_simulated, runs=predictive_runs)
+        prior_simulated = prior_predictive_from_training(
+            training_data,
+            tuple(summaries),
+        )
+        prior_frame = summary_frame(prior_simulated, runs=num_simulations)
         posterior_draws_for_plot = posterior_parameter_draws(
             posterior,
             variable_keys,
             draws=min(predictive_runs, posterior_draws),
-            rng=np.random.default_rng(seeds[2]),
+            rng=np.random.default_rng(seeds[1]),
         )
         n_posterior_runs = int(
             np.asarray(next(iter(posterior_draws_for_plot.values()))).shape[0]
@@ -304,13 +318,23 @@ def run_inference(
             desc="Posterior predictive",
             unit="run",
         ) as progress:
-            posterior_simulated = model.simulate_summaries(
-                posterior_draws_for_plot,
-                summaries,
-                seed=seeds[2],
-                progress=progress.update,
-                **context,
-            )
+            if cpus == 1:
+                posterior_simulated = model.simulate_summaries(
+                    posterior_draws_for_plot,
+                    summaries,
+                    seed=seeds[1],
+                    progress=progress.update,
+                    **context,
+                )
+            else:
+                posterior_simulated = simulate_summaries_in_processes(
+                    model_name,
+                    parameters=posterior_draws_for_plot,
+                    summary_names=tuple(summaries),
+                    seed=seeds[1],
+                    cpus=cpus,
+                    progress=progress.update,
+                )
         posterior_frame = summary_frame(
             posterior_simulated,
             runs=n_posterior_runs,
@@ -407,7 +431,10 @@ def parse_args() -> argparse.Namespace:
         "--predictive-runs",
         type=int,
         default=100,
-        help="prior and posterior predictive simulations; use 0 to skip",
+        help=(
+            "posterior-predictive simulations; use 0 to skip. "
+            "The prior cloud reuses the training simulations"
+        ),
     )
     parser.add_argument(
         "--diagnostic-datasets",
@@ -436,8 +463,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cpus",
         type=int,
-        default=1,
-        help="worker processes for offline simulations (default: 1)",
+        default=4,
+        help=(
+            "worker processes for training and posterior-predictive "
+            "simulations (default: 4)"
+        ),
     )
     parser.add_argument(
         "--show",

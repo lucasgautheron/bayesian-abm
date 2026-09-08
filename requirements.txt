@@ -9,3 +9,4 @@ bayesflow==2.0.12
 scipy==1.17.1
 seaborn==0.13.2
 tqdm==4.67.1
+boto3==1.40.18
