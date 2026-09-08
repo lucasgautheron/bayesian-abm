@@ -25,7 +25,15 @@ disable-model-invocation: true
    explanatory prose, and figure link labels instead of drafting them again.
    Replace every `{{PLACEHOLDER}}` with the generated model-specific content
    and leave no placeholder syntax behind. Omit a section only when its
-   optional figure was not generated; never leave a broken figure link.
+   optional figure was not generated; never leave a broken figure link. Never
+   omit `## Summary statistics`. Populate `{{SUMMARY_STATISTIC_ROWS}}` with one
+   Markdown table row per enabled statistic, in configured order. Each row
+   must contain the exact registry name, a short plain-language description
+   grounded in the dataset's summary implementation, and the scalar value
+   computed from the observed dataset. Read values from the same loaded
+   observation conditions used for inference; do not substitute simulated,
+   prior-predictive, or posterior-predictive values. Use enough significant
+   digits to make the value informative and escape Markdown table delimiters.
 6. Rewrite only the `## Model description` paragraph in the generated
    `report.md` after inspecting the selected model's simulator and any helpers
    that define its process. In two to four concrete sentences, explain in
@@ -36,13 +44,15 @@ disable-model-invocation: true
    useful. Ground every claim in the implementation. Do not merely reuse the
    model's class docstring or add generic boilerplate such as saying that the
    program maps assumptions to synthetic data.
-7. Verify `report.md` and every linked figure, then report the report path,
-   enabled summary names, and generated figure paths.
+7. Verify that `report.md` contains one complete summary-statistic row for
+   every enabled name and verify every linked figure. Then report the report
+   path, enabled summary names, and generated figure paths.
 8. If execution fails after producing some figures, identify the completed and
    failed stage without deleting partial results.
 
 The default report directory is `reports/<model>/`. Its `report.md` contains
-the model description; a parameter/prior table with natural-scale mean, sigma,
+the model description; a summary-statistics table with names, descriptions,
+and observed values; a parameter/prior table with natural-scale mean, sigma,
 and units; prior-predictive, prior/posterior, and posterior-predictive figures;
 and dynamic inference diagnostics. Figures are stored as `simulations.png`,
 `posterior.png`, an optional `posterior_predictive.png`, and optional files

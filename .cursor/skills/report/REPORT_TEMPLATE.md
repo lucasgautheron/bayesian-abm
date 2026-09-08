@@ -4,6 +4,14 @@
 
 {{MODEL_DESCRIPTION}}
 
+## Summary statistics
+
+Summary statistics reduce the observed data to the scalar features used for simulation-based inference. The values below are computed from the observed dataset.
+
+| Statistic | Description | Value |
+| --- | --- | ---: |
+{{SUMMARY_STATISTIC_ROWS}}
+
 ## Parameters and prior distributions
 
 Parameters describe individual or population traits, strategies, environmental features, or latent social structure. Their priors are sampled anew for each simulation; the mean and sigma below are the implied moments on the parameter's natural scale.
