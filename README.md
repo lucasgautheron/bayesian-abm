@@ -23,7 +23,7 @@ Run these commands in chat.
 
 | Task | Command | Output |
 | --- | --- | --- |
-| Test SSH to the shared instance | `/test` | Chat only |
+| Test SSH key, instance, and connection | `/test` | Chat only |
 | Configure summary statistics | `/configure-summary-stats [MODEL_OR_DATASET]` | `.config/summary.ini` |
 | Add a summary statistic | `/add-summary-stat` | `datasets/<dataset>/summaries.py` and tests |
 | Add a model | `/add-model` | `models/<dataset>/` and tests |
@@ -33,9 +33,10 @@ Run these commands in chat.
 | Generate a model report | `/report MODEL [OPTIONS]` | `reports/<model>/` |
 | Submit a model and report | `/submission MODEL` | `submissions/<model>` branch |
 
-`/test` probes SSH to the [shared AWS instance](scripts/aws/README.md).
-It does not run a local simulation or inference smoke test. A failed
-probe is a test failure; the instance is not started automatically.
+`/test` checks that the workshop SSH key can be accessed, that the
+[shared AWS instance](scripts/aws/README.md) is running, and that SSH to
+it works. It does not run a local simulation or inference smoke test. A
+failed check is a test failure; the instance is not started automatically.
 
 `/simulate`, `/inference`, and `/report` prefer the [shared AWS
 instance](scripts/aws/README.md) (`--cpus 16`) and fall back to this machine
@@ -43,7 +44,7 @@ instance](scripts/aws/README.md) (`--cpus 16`) and fall back to this machine
 
 A typical loop:
 
-1. `/test` to confirm SSH to the shared instance.
+1. `/test` to confirm the SSH key, running instance, and connection.
 2. `/configure-summary-stats` for the dataset you are working on.
 3. `/add-model` or `/update-model` as you design the process.
 4. `/simulate`, then `/inference` or `/report`.
@@ -164,7 +165,7 @@ from the repository root after activating the project environment.
 
 | Task | Command |
 | --- | --- |
-| Test SSH to the shared instance | `python scripts/test.py` |
+| Test SSH key, instance, and connection | `python scripts/test.py` |
 | Configure summaries | Copy `.config/summary.example.ini` to `.config/summary.ini` and edit the dataset's `enabled` list |
 | Simulate | `python scripts/simulate.py MODEL [OPTIONS]` |
 | Infer | `python scripts/inference.py MODEL [OPTIONS]` |

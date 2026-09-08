@@ -41,6 +41,129 @@ class FakeS3:
 
 
 class AwsSupportTests(unittest.TestCase):
+    def _write_dallingerconfig(
+        self,
+        directory: Path,
+        access_key: str = "AKIADALLINGER",
+        secret: str = "dallinger-secret",
+    ) -> Path:
+        path = directory / aws_support.DALLINGER_CONFIG_NAME
+        path.write_text(
+            "[AWS Access]\n"
+            f"aws_access_key_id = {access_key}\n"
+            f"aws_secret_access_key = {secret}\n"
+            "aws_region = us-east-1\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_load_aws_credentials_reads_dallingerconfig(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = self._write_dallingerconfig(Path(directory))
+
+            credentials = aws_support.load_aws_credentials(path=path, environ={})
+
+        self.assertEqual(
+            credentials,
+            {
+                "aws_access_key_id": "AKIADALLINGER",
+                "aws_secret_access_key": "dallinger-secret",
+            },
+        )
+
+    def test_load_aws_credentials_prefers_environment_override(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = self._write_dallingerconfig(Path(directory))
+
+            credentials = aws_support.load_aws_credentials(
+                path=path,
+                environ={
+                    "AWS_ACCESS_KEY_ID": "AKIAENV",
+                    "AWS_SECRET_ACCESS_KEY": "env-secret",
+                },
+            )
+
+        self.assertEqual(
+            credentials,
+            {
+                "aws_access_key_id": "AKIAENV",
+                "aws_secret_access_key": "env-secret",
+            },
+        )
+
+    def test_load_aws_credentials_accepts_environment_without_a_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / aws_support.DALLINGER_CONFIG_NAME
+            credentials = aws_support.load_aws_credentials(
+                path=path,
+                environ={
+                    "AWS_ACCESS_KEY_ID": "AKIAENV",
+                    "AWS_SECRET_ACCESS_KEY": "env-secret",
+                },
+            )
+
+        self.assertEqual(
+            credentials,
+            {
+                "aws_access_key_id": "AKIAENV",
+                "aws_secret_access_key": "env-secret",
+            },
+        )
+
+    def test_load_aws_credentials_explains_a_missing_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / aws_support.DALLINGER_CONFIG_NAME
+            with self.assertRaises(aws_support.AwsError) as raised:
+                aws_support.load_aws_credentials(path=path, environ={})
+
+        self.assertIn(str(path), raised.exception.problem)
+        self.assertIn(str(path), raised.exception.resolution)
+        self.assertIn("[AWS Access]", raised.exception.resolution)
+
+    def test_load_aws_credentials_explains_missing_keys(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / aws_support.DALLINGER_CONFIG_NAME
+            path.write_text("[AWS Access]\naws_region = us-east-1\n", encoding="utf-8")
+            with self.assertRaises(aws_support.AwsError) as raised:
+                aws_support.load_aws_credentials(path=path, environ={})
+
+        self.assertIn(str(path), raised.exception.problem)
+        self.assertIn("aws_access_key_id", raised.exception.resolution)
+
+    def test_ec2_and_s3_clients_pass_loaded_credentials(self) -> None:
+        credentials = {
+            "aws_access_key_id": "AKIACLIENT",
+            "aws_secret_access_key": "client-secret",
+        }
+        boto3 = Mock()
+        with (
+            patch.object(aws_support, "load_aws_credentials", return_value=credentials),
+            patch.object(aws_support, "import_boto3", return_value=boto3),
+        ):
+            aws_support.ec2_client("us-west-2")
+            aws_support.s3_client()
+
+        boto3.client.assert_any_call(
+            "ec2",
+            region_name="us-west-2",
+            aws_access_key_id="AKIACLIENT",
+            aws_secret_access_key="client-secret",
+        )
+        boto3.client.assert_any_call(
+            "s3",
+            region_name=aws_support.WORKSHOP_S3_REGION,
+            aws_access_key_id="AKIACLIENT",
+            aws_secret_access_key="client-secret",
+        )
+
+    def test_translate_boto_error_points_at_dallingerconfig(self) -> None:
+        error = aws_support.translate_boto_error(
+            RuntimeError("Unable to locate credentials")
+        )
+
+        self.assertIn("[AWS Access]", error.resolution)
+        self.assertIn(str(aws_support.dallinger_config_path()), error.resolution)
+
     def test_remote_user_prefers_environment_override(self) -> None:
         self.assertEqual(
             aws_support.remote_user({"AWS_REMOTE_USER": "Ada Lovelace"}),

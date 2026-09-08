@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+import configparser
 from dataclasses import dataclass
 import getpass
 import json
@@ -32,6 +33,8 @@ WORKSHOP_S3_REGION = DEFAULT_REGION
 INSTANCE_CONFIG_S3_KEY = "workshop/instance.json"
 WORKSHOP_SSH_S3_KEY = "workshop/ssh/id_ed25519"
 WORKSHOP_SSH_PUB_S3_KEY = "workshop/ssh/id_ed25519.pub"
+DALLINGER_CONFIG_NAME = ".dallingerconfig"
+DALLINGER_AWS_SECTION = "AWS Access"
 SSH_USER = "ubuntu"
 CONDA_ROOT = "/opt/miniconda3"
 CONDA_ENV = "bayesian-modelling"
@@ -67,6 +70,11 @@ class InstanceConfig(TypedDict):
     instance_type: str
     security_group_id: str
     default_cpus: int
+
+
+class AwsCredentials(TypedDict):
+    aws_access_key_id: str
+    aws_secret_access_key: str
 
 
 class AwsError(RuntimeError):
@@ -298,6 +306,54 @@ def clear_instance_config(root: Path = ROOT, s3: Any | None = None) -> None:
         raise AwsError(translated.problem, translated.resolution) from exc
 
 
+def dallinger_config_path(home: Path | None = None) -> Path:
+    """Return the path to Dallinger's user config file."""
+
+    return (home if home is not None else Path.home()) / DALLINGER_CONFIG_NAME
+
+
+def _aws_credential_resolution(path: Path) -> str:
+    return (
+        f"Add aws_access_key_id and aws_secret_access_key under "
+        f"[{DALLINGER_AWS_SECTION}] in {path}."
+    )
+
+
+def load_aws_credentials(
+    path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> AwsCredentials:
+    """Read AWS keys from the environment, then ~/.dallingerconfig."""
+
+    env = os.environ if environ is None else environ
+    config_path = path if path is not None else dallinger_config_path()
+    access_key = str(env.get("AWS_ACCESS_KEY_ID") or "").strip()
+    secret_key = str(env.get("AWS_SECRET_ACCESS_KEY") or "").strip()
+    if not access_key or not secret_key:
+        if not config_path.is_file():
+            raise AwsError(
+                f"AWS credentials were not found at {config_path}.",
+                _aws_credential_resolution(config_path),
+            )
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(config_path, encoding="utf-8")
+        if parser.has_section(DALLINGER_AWS_SECTION):
+            section = parser[DALLINGER_AWS_SECTION]
+            if not access_key:
+                access_key = section.get("aws_access_key_id", "").strip()
+            if not secret_key:
+                secret_key = section.get("aws_secret_access_key", "").strip()
+    if not access_key or not secret_key:
+        raise AwsError(
+            f"AWS credentials are missing from {config_path}.",
+            _aws_credential_resolution(config_path),
+        )
+    return {
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+    }
+
+
 def import_boto3() -> Any:
     """Import boto3 or explain that it is part of the project environment."""
 
@@ -312,16 +368,26 @@ def import_boto3() -> Any:
     return boto3
 
 
-def ec2_client(region: str) -> Any:
-    """Return an EC2 client for ``region`` using local AWS credentials."""
+def _boto_client(service: str, region: str) -> Any:
+    credentials = load_aws_credentials()
+    return import_boto3().client(
+        service,
+        region_name=region,
+        aws_access_key_id=credentials["aws_access_key_id"],
+        aws_secret_access_key=credentials["aws_secret_access_key"],
+    )
 
-    return import_boto3().client("ec2", region_name=region)
+
+def ec2_client(region: str) -> Any:
+    """Return an EC2 client for ``region`` using ~/.dallingerconfig credentials."""
+
+    return _boto_client("ec2", region)
 
 
 def s3_client(region: str = WORKSHOP_S3_REGION) -> Any:
     """Return an S3 client for the workshop bucket region."""
 
-    return import_boto3().client("s3", region_name=region)
+    return _boto_client("s3", region)
 
 
 def ensure_workshop_bucket(s3: Any | None = None) -> str:
@@ -806,7 +872,7 @@ def conda_run_command(args: Sequence[str]) -> str:
 
 
 def ssh_probe_command() -> str:
-    """Return a cheap remote probe used by ``/test``."""
+    """Return a cheap remote probe used by ``remote.py check``."""
 
     return conda_run_command(["python", "-c", "print('ok')"])
 
@@ -820,7 +886,7 @@ def translate_boto_error(exc: BaseException) -> AwsError:
     if "unable to locate credentials" in lowered or name == "NoCredentialsError":
         return AwsError(
             "AWS credentials were not found.",
-            "Configure the workshop account in ~/.aws/credentials and rerun.",
+            _aws_credential_resolution(dallinger_config_path()),
         )
     if "unauthorizedoperation" in lowered or "accessdenied" in lowered:
         return AwsError(

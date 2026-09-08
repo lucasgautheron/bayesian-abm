@@ -67,14 +67,26 @@ python scripts/aws/instance.py start
 python scripts/aws/instance.py stop
 ```
 
-`/test` only probes SSH. A failed probe is a test failure; it typically
-means the instance is stopped.
+`/test` reports three checks in order: SSH key access, whether the
+instance is running, and SSH connectivity. A stopped instance fails the
+instance check and skips the connection check; the instance is not
+started automatically.
 
 ## Access and isolation
 
-Each person uses `~/.aws/credentials`. Everyone SSHs with the same
+Each person uses `~/.dallingerconfig`. Everyone SSHs with the same
 workshop key from S3, as `ubuntu`. If `remote.py check` works on one
 machine, it works for anyone with those credentials.
+
+```ini
+[AWS Access]
+aws_access_key_id = ...
+aws_secret_access_key = ...
+```
+
+The workshop instance stays in `us-west-2` even if that file sets
+`aws_region`. `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` override
+the matching keys in the file.
 
 Per-user workspaces stay under `/home/ubuntu/users/<username>`
 (`AWS_REMOTE_USER` if local usernames collide).
