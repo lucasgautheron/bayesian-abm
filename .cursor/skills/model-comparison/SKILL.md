@@ -40,13 +40,15 @@ unavailable.
    until it exits. Do not start a second run while the first is still going;
    a retry would `rsync --delete` the in-progress remote tree.
 5. Report whether the run was remote or local, the printed model
-   probabilities, the probability figure and diagnostics paths that were
-   actually generated, and the enabled summary names.
+   probabilities, the probability figure, prior-predictive pairplot, and
+   diagnostics paths that were actually generated, and the enabled summary
+   names.
 6. If execution fails, diagnose the concrete error. Do not change priors,
    model behavior, or summary implementations unless explicitly requested.
 
-The default figure is
-`output/comparisons/<model>_vs_<model>/probabilities.png`. Diagnostics, when
+The default figures are
+`output/comparisons/<model>_vs_<model>/probabilities.png` and
+`output/comparisons/<model>_vs_<model>/prior_predictive.png`. Diagnostics, when
 not skipped, are written under that directory's `diagnostics/` folder.
 Comparison can be computationally expensive. Before overriding defaults with
 larger values, state the requested workload clearly.

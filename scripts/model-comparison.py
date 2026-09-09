@@ -37,7 +37,11 @@ from scripts.parallel import (
     sample_model_comparison_in_processes,
     validate_cpus,
 )
-from visualization.diagnostics import plot_model_probabilities
+from scripts.simulate import summary_frame
+from visualization.diagnostics import (
+    plot_model_comparison_pairplot,
+    plot_model_probabilities,
+)
 
 
 DEFAULT_DIAGNOSTIC_DATASETS = 100
@@ -232,6 +236,63 @@ def extract_probabilities(
     return probabilities.mean(axis=0)
 
 
+def prior_predictive_frames(
+    training_data: Mapping[str, np.ndarray],
+    model_names: Sequence[str],
+    summaries: Sequence[str],
+) -> dict[str, Any]:
+    """Split prior-predictive summaries already drawn for training by model."""
+
+    missing = [name for name in summaries if name not in training_data]
+    if missing:
+        raise ValueError(
+            "training data is missing summaries: " + ", ".join(missing)
+        )
+    if "model_indices" not in training_data:
+        raise ValueError("training data is missing model_indices")
+    indices = np.asarray(training_data["model_indices"]).reshape(-1)
+    n_runs = indices.size
+    frames: dict[str, Any] = {}
+    for model_index, name in enumerate(model_names):
+        mask = indices == model_index
+        count = int(np.count_nonzero(mask))
+        if count < 2:
+            raise ValueError(
+                "KDE plots require at least two prior-predictive draws "
+                f"for {name}"
+            )
+        simulated = {
+            summary: np.asarray(training_data[summary]).reshape(n_runs, -1)[mask]
+            for summary in summaries
+        }
+        frames[name] = summary_frame(simulated, runs=count)
+    return frames
+
+
+def plot_training_model_comparison_pairplot(
+    training_data: Mapping[str, np.ndarray],
+    observations: Any,
+    model_names: Sequence[str],
+    summaries: Sequence[str],
+) -> Any:
+    """Plot each model's prior-predictive summaries from training draws."""
+
+    observed_frame = summary_frame(
+        observations.conditions,
+        runs=observations.count,
+    )
+    observed = (
+        observed_frame.iloc[0].to_dict()
+        if observations.count == 1
+        else observed_frame
+    )
+    return plot_model_comparison_pairplot(
+        prior_predictive_frames(training_data, model_names, summaries),
+        observed,
+        model_names=model_names,
+    )
+
+
 def predict_observations(
     approximator: bf.approximators.ModelComparisonApproximator,
     conditions: Mapping[str, np.ndarray],
@@ -348,7 +409,15 @@ def run_model_comparison(
         names,
         dataset=dataset,
     )
-    plots: dict[str, Any] = {"posterior": posterior}
+    plots: dict[str, Any] = {
+        "posterior": posterior,
+        "prior_predictive": plot_training_model_comparison_pairplot(
+            training_data,
+            observations,
+            names,
+            tuple(summaries),
+        ),
+    }
 
     if diagnostic_datasets > 0:
         diagnostic_simulator = make_model_comparison_simulator(
@@ -384,6 +453,11 @@ def run_model_comparison(
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         posterior.savefig(output_path, dpi=160, bbox_inches="tight")
+        plots["prior_predictive"].savefig(
+            output_path.parent / "prior_predictive.png",
+            dpi=160,
+            bbox_inches="tight",
+        )
 
     if diagnostic_datasets > 0 and (
         diagnostics_path is not None or output_path is not None
@@ -391,7 +465,7 @@ def run_model_comparison(
         diagnostics_path = diagnostics_path or output_path.parent / "diagnostics"
         diagnostics_path.mkdir(parents=True, exist_ok=True)
         for name, figure in plots.items():
-            if name != "posterior":
+            if name not in {"posterior", "prior_predictive"}:
                 figure.savefig(
                     diagnostics_path / f"{name}.png",
                     dpi=160,
@@ -499,6 +573,10 @@ def main() -> None:
         )
         raise SystemExit(f"error: {message}") from exc
     print(f"Saved model comparison to {output.resolve()}")
+    print(
+        "Saved prior-predictive pairplot to "
+        f"{(output.parent / 'prior_predictive.png').resolve()}"
+    )
     for name, probability in probabilities.items():
         print(f"{name}: {probability:.3f}")
     if args.diagnostic_datasets > 0:

@@ -12,7 +12,20 @@ from numpy.typing import ArrayLike, NDArray
 from base.model import INTERVAL_SECONDS
 
 from .base import ContactModel
-from .group_occupancy import end_probability, n_groups
+
+
+def n_groups(group_rate: float, n_agents: int) -> int:
+    """Return the number of groups implied by the group-rate prior."""
+
+    return max(1, min(int(n_agents), int(round(float(group_rate)))))
+
+
+def end_probability(mean_duration_minutes: float) -> float:
+    """Return the per-minute end probability from a mean on-run length."""
+
+    if np.isinf(mean_duration_minutes):
+        return 0.0
+    return float(-np.expm1(-1.0 / float(mean_duration_minutes)))
 
 
 GP_LOG_SIGMA = 1.0
@@ -276,6 +289,8 @@ __all__ = [
     "draw_log_ou_path",
     "draw_weighted_indices",
     "empty_contacts",
+    "end_probability",
+    "n_groups",
     "pair_product_sum",
     "simulate_weighted_conversations",
 ]

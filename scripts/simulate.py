@@ -1,7 +1,7 @@
 """Simulate summary statistics and compare them with a selected dataset.
 
 Example:
-    python scripts/simulate.py reputation_conversation
+    python scripts/simulate.py latent_network
 """
 
 from __future__ import annotations

@@ -10,7 +10,6 @@ import pymc as pm
 from numpy.typing import ArrayLike, NDArray
 
 from .base import ContactModel
-from .group_occupancy import n_groups
 from .latent_network_gravity import (
     LENGTHSCALE_MEAN_MINUTES,
     PARETO_ALPHA,
@@ -19,6 +18,7 @@ from .latent_network_gravity import (
     draw_affinities,
     draw_log_ou_path,
     empty_contacts,
+    n_groups,
     simulate_weighted_conversations,
 )
 

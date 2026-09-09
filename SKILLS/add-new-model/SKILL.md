@@ -6,7 +6,7 @@ description: Plans, adds, and registers contact simulation models from probabili
 # Add a new model
 
 Follow the interfaces in `base/model.py` and the contact-model example in
-`models/contacts/reputation.py`.
+`models/contacts/latent_network.py`.
 
 ## Required specification and response
 

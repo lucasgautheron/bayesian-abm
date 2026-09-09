@@ -14,6 +14,18 @@ import pandas as pd
 import seaborn as sns
 
 
+MODEL_COMPARISON_COLORS = (
+    "tab:blue",
+    "tab:orange",
+    "tab:green",
+    "tab:purple",
+    "tab:brown",
+    "tab:pink",
+    "tab:olive",
+    "tab:cyan",
+)
+
+
 def _padded_limits(
     *values: ArrayLike,
     fraction: float = 0.05,
@@ -553,6 +565,183 @@ def plot_summary_pairplot(
     return figure
 
 
+def plot_model_comparison_pairplot(
+    predictions: Mapping[str, pd.DataFrame],
+    observed: Mapping[str, float] | pd.DataFrame,
+    *,
+    model_names: Sequence[str] | None = None,
+) -> Figure:
+    """Plot each model's prior-predictive summaries against the data."""
+
+    names = list(model_names) if model_names is not None else list(predictions)
+    if len(names) < 2:
+        raise ValueError("at least two models are required")
+    missing = [name for name in names if name not in predictions]
+    if missing:
+        raise ValueError(
+            "predictions are missing models: " + ", ".join(missing)
+        )
+    frames = [predictions[name] for name in names]
+    if any(frame.empty or len(frame.columns) == 0 for frame in frames):
+        raise ValueError("at least one simulated summary is required")
+    summaries = list(frames[0].columns)
+    if any(list(frame.columns) != summaries for frame in frames):
+        raise ValueError("compared models must share the same summaries")
+    if any(len(frame) < 2 for frame in frames):
+        raise ValueError("KDE plots require at least two predictive draws")
+    observed_frame = (
+        pd.DataFrame([observed])
+        if isinstance(observed, Mapping)
+        else observed
+    )
+    if observed_frame.empty:
+        raise ValueError("at least one observed summary is required")
+    if set(observed_frame.columns) != set(summaries):
+        raise ValueError("observed and simulated summaries must match")
+    observed_frame = observed_frame[summaries]
+    stacked = [frame[summaries] for frame in frames]
+    if (
+        any(not np.all(np.isfinite(frame.to_numpy())) for frame in stacked)
+        or not np.all(np.isfinite(observed_frame.to_numpy()))
+    ):
+        raise ValueError("predictive and observed summaries must be finite")
+
+    count = len(summaries)
+    figure, axes = plt.subplots(
+        count,
+        count,
+        figsize=(3.2 * count, 3.2 * count),
+        squeeze=False,
+    )
+    limits = [
+        _padded_limits(
+            *(frame[name] for frame in stacked),
+            observed_frame[name],
+            fraction=0.03,
+        )
+        for name in summaries
+    ]
+    colors = [
+        MODEL_COMPARISON_COLORS[index % len(MODEL_COMPARISON_COLORS)]
+        for index in range(len(names))
+    ]
+    single_observation = len(observed_frame) == 1
+
+    for row, y_name in enumerate(summaries):
+        for column, x_name in enumerate(summaries):
+            axis = axes[row, column]
+            if row == column:
+                for frame, color in zip(stacked, colors):
+                    sns.kdeplot(
+                        x=frame[x_name],
+                        ax=axis,
+                        color=color,
+                        fill=True,
+                        alpha=0.25,
+                        linewidth=1.5,
+                        warn_singular=False,
+                    )
+                if single_observation:
+                    observed_value = observed_frame[x_name].iloc[0]
+                    axis.axvline(
+                        observed_value,
+                        color="tab:red",
+                        linestyle=":",
+                        linewidth=1,
+                    )
+                    axis.scatter(
+                        observed_value,
+                        0,
+                        marker="*",
+                        s=140,
+                        color="tab:red",
+                        edgecolor="white",
+                        linewidth=0.7,
+                        zorder=3,
+                        clip_on=False,
+                    )
+                else:
+                    sns.kdeplot(
+                        x=observed_frame[x_name],
+                        ax=axis,
+                        color="tab:red",
+                        linewidth=1.3,
+                        warn_singular=False,
+                    )
+            else:
+                for frame, color in zip(stacked, colors):
+                    sns.kdeplot(
+                        x=frame[x_name],
+                        y=frame[y_name],
+                        ax=axis,
+                        color=color,
+                        levels=6,
+                        linewidths=1.2,
+                        thresh=0.05,
+                        warn_singular=False,
+                    )
+                if single_observation:
+                    axis.scatter(
+                        observed_frame[x_name],
+                        observed_frame[y_name],
+                        marker="*",
+                        s=170,
+                        color="tab:red",
+                        edgecolor="white",
+                        linewidth=0.7,
+                        zorder=3,
+                    )
+                else:
+                    axis.scatter(
+                        observed_frame[x_name],
+                        observed_frame[y_name],
+                        s=8,
+                        color="tab:red",
+                        alpha=0.12,
+                        linewidth=0,
+                        rasterized=True,
+                    )
+            _format_pair_axis(
+                axis,
+                row=row,
+                column=column,
+                labels=summaries,
+                limits=limits,
+                diagonal_density_label=True,
+            )
+
+    figure.legend(
+        handles=[
+            *(
+                Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    linewidth=1.5,
+                    label=name.replace("_", " "),
+                )
+                for name, color in zip(names, colors)
+            ),
+            Line2D(
+                [0],
+                [0],
+                color="tab:red",
+                marker="*",
+                linestyle="None",
+                markersize=10,
+                label="Observed",
+            ),
+        ],
+        loc="upper right",
+        frameon=False,
+    )
+    figure.suptitle(
+        "Prior-predictive summary statistics by model (observed data: red)"
+    )
+    figure.tight_layout(rect=(0, 0, 1, 0.96))
+    return figure
+
+
 def plot_model_probabilities(
     probabilities: ArrayLike,
     model_names: Sequence[str],
@@ -581,6 +770,7 @@ def plot_model_probabilities(
 
 
 __all__ = [
+    "plot_model_comparison_pairplot",
     "plot_model_probabilities",
     "plot_predictive_summary_pairplot",
     "plot_prior_posterior_pairplot",

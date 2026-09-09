@@ -23,6 +23,7 @@ from scripts.inference import (
     sample_observations,
 )
 from visualization.diagnostics import (
+    plot_model_comparison_pairplot,
     plot_predictive_summary_pairplot,
     plot_prior_posterior_pairplot,
     prepare_posterior_plot_data,
@@ -181,6 +182,37 @@ class PosteriorPlotDataTests(unittest.TestCase):
         self.assertEqual(selected["rate"].shape, (3,))
         self.assertEqual(selected["scale"].shape, (3, 1))
         self.assertTrue(np.all(selected["rate"] >= 6.0))
+
+    def test_model_comparison_pairplot_overlays_each_model_and_data(
+        self,
+    ) -> None:
+        predictions = {
+            "first": pd.DataFrame(
+                {
+                    "contacts": np.linspace(1.0, 3.0, 8),
+                    "clustering": np.linspace(0.1, 0.4, 8),
+                }
+            ),
+            "second": pd.DataFrame(
+                {
+                    "contacts": np.linspace(2.0, 4.0, 8),
+                    "clustering": np.linspace(0.2, 0.5, 8),
+                }
+            ),
+        }
+
+        with patch("visualization.diagnostics.sns.kdeplot") as kdeplot:
+            figure = plot_model_comparison_pairplot(
+                predictions,
+                {"contacts": 2.0, "clustering": 0.25},
+            )
+
+        self.assertEqual(len(figure.axes), 4)
+        self.assertEqual(kdeplot.call_count, 8)
+        self.assertEqual(
+            [text.get_text() for text in figure.legends[0].get_texts()],
+            ["first", "second", "Observed"],
+        )
 
     def test_predictive_pairplot_overlays_prior_posterior_and_data(
         self,

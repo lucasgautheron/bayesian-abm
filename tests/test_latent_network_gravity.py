@@ -24,6 +24,8 @@ from models.contacts.latent_network_gravity import (
     draw_affinities,
     draw_log_ou_path,
     draw_weighted_indices,
+    end_probability,
+    n_groups,
     pair_product_sum,
 )
 from tests.contact_model_helpers import FakePyMC, ScriptedRng
@@ -92,6 +94,15 @@ class LatentNetworkGravityTests(unittest.TestCase):
             prior.variables[7][2],
             {"alpha": PARETO_ALPHA, "m": PARETO_MINIMUM},
         )
+
+    def test_n_groups_is_rounded_and_clipped(self) -> None:
+        self.assertEqual(n_groups(2.4, 6), 2)
+        self.assertEqual(n_groups(0.4, 6), 1)
+        self.assertEqual(n_groups(20.0, 6), 6)
+
+    def test_end_probability_is_hand_computed(self) -> None:
+        self.assertEqual(end_probability(np.inf), 0.0)
+        self.assertAlmostEqual(end_probability(1.0), 1.0 - np.exp(-1.0))
 
     def test_pair_hazards_combine_affinity_and_activity_products(self) -> None:
         rng = ScriptedRng(

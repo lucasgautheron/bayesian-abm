@@ -1,7 +1,7 @@
 """Train a BayesFlow posterior for a selected observed dataset.
 
 Example:
-    python scripts/inference.py reputation_conversation
+    python scripts/inference.py latent_network
 """
 
 from __future__ import annotations

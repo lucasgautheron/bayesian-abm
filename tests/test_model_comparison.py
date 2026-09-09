@@ -66,13 +66,13 @@ class ModelComparisonTests(unittest.TestCase):
     def test_rejects_duplicate_models(self) -> None:
         with self.assertRaisesRegex(ValueError, "unique"):
             model_comparison.resolve_models(
-                ["reputation_conversation", "reputation_conversation"]
+                ["latent_network", "latent_network"]
             )
 
     def test_rejects_models_from_different_datasets(self) -> None:
         with self.assertRaisesRegex(ValueError, "same dataset"):
             model_comparison.resolve_models(
-                ["reputation_conversation", "story_competition"]
+                ["latent_network", "story_competition"]
             )
 
     def test_predicts_observations_in_batches(self) -> None:
@@ -146,22 +146,22 @@ class ModelComparisonTests(unittest.TestCase):
     def test_offline_training_requires_positive_counts(self) -> None:
         with self.assertRaisesRegex(ValueError, "num_simulations"):
             model_comparison.run_model_comparison(
-                ["reputation_conversation", "latent_network"],
+                ["gravity", "latent_network"],
                 num_simulations=0,
             )
         with self.assertRaisesRegex(ValueError, "epochs"):
             model_comparison.run_model_comparison(
-                ["reputation_conversation", "latent_network"],
+                ["gravity", "latent_network"],
                 epochs=0,
             )
         with self.assertRaisesRegex(ValueError, "batch_size"):
             model_comparison.run_model_comparison(
-                ["reputation_conversation", "latent_network"],
+                ["gravity", "latent_network"],
                 batch_size=0,
             )
         with self.assertRaisesRegex(ValueError, "cpus"):
             model_comparison.run_model_comparison(
-                ["reputation_conversation", "latent_network"],
+                ["gravity", "latent_network"],
                 cpus=0,
             )
 
@@ -171,7 +171,7 @@ class ModelComparisonTests(unittest.TestCase):
             "argv",
             [
                 "model-comparison.py",
-                "reputation_conversation",
+                "gravity",
                 "latent_network",
             ],
         ):
@@ -321,6 +321,86 @@ class ModelComparisonTests(unittest.TestCase):
 
         self.assertIs(models[0].progress, progress)
         self.assertIs(models[1].progress, progress)
+
+    def test_prior_predictive_frames_split_training_draws_by_model(
+        self,
+    ) -> None:
+        training_data = {
+            "connectivity": np.asarray(
+                [[0.1], [0.2], [0.3], [0.4], [0.5], [0.6]]
+            ),
+            "clustering": np.linspace(0.0, 0.5, 6),
+            "model_indices": np.asarray([0, 1, 0, 1, 0, 1]),
+        }
+
+        frames = model_comparison.prior_predictive_frames(
+            training_data,
+            ["first", "second"],
+            ("connectivity", "clustering"),
+        )
+
+        self.assertEqual(list(frames), ["first", "second"])
+        np.testing.assert_allclose(
+            frames["first"]["connectivity"],
+            [0.1, 0.3, 0.5],
+        )
+        np.testing.assert_allclose(
+            frames["second"]["clustering"],
+            [0.1, 0.3, 0.5],
+        )
+
+    def test_prior_predictive_frames_require_two_draws_per_model(self) -> None:
+        training_data = {
+            "connectivity": np.asarray([0.1, 0.2, 0.3]),
+            "model_indices": np.asarray([0, 0, 1]),
+        }
+
+        with self.assertRaisesRegex(ValueError, "at least two"):
+            model_comparison.prior_predictive_frames(
+                training_data,
+                ["first", "second"],
+                ("connectivity",),
+            )
+
+    def test_training_summaries_make_model_comparison_pairplot(self) -> None:
+        observations = SimpleNamespace(
+            conditions={
+                "connectivity": np.asarray([[0.4]]),
+                "clustering": np.asarray([[0.2]]),
+            },
+            count=1,
+        )
+        training_data = {
+            "connectivity": np.linspace(0.1, 0.6, 6),
+            "clustering": np.linspace(0.0, 0.5, 6),
+            "model_indices": np.asarray([0, 1, 0, 1, 0, 1]),
+        }
+        figure = object()
+
+        with patch.object(
+            model_comparison,
+            "plot_model_comparison_pairplot",
+            return_value=figure,
+        ) as pairplot:
+            result = model_comparison.plot_training_model_comparison_pairplot(
+                training_data,
+                observations,
+                ["first", "second"],
+                ("connectivity", "clustering"),
+            )
+
+        self.assertIs(result, figure)
+        predictions, observed = pairplot.call_args.args
+        self.assertEqual(list(predictions), ["first", "second"])
+        self.assertEqual(len(predictions["first"]), 3)
+        self.assertEqual(
+            observed,
+            {"connectivity": 0.4, "clustering": 0.2},
+        )
+        self.assertEqual(
+            pairplot.call_args.kwargs["model_names"],
+            ["first", "second"],
+        )
 
 
 if __name__ == "__main__":

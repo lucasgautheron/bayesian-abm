@@ -178,5 +178,5 @@ from the repository root after activating the project environment.
 python scripts/simulate.py latent_network
 python scripts/inference.py latent_network
 python scripts/report.py latent_network
-python scripts/model-comparison.py reputation_conversation latent_network
+python scripts/model-comparison.py gravity latent_network
 ```
