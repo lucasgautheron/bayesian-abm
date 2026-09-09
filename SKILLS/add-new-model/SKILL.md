@@ -74,8 +74,8 @@ class and registry through `__all__`.
 12. Explore performance improvements without changing model behavior.
     Simulations should be as fast as possible while keeping the code readable.
 13. Write human-readable code. The connection between the code and the verbal
-    description of the model should be clear. Add sparse comments
-    in the simulation function to make this connection clear.
+    description of the model should be clear. Add comments
+    throughout the simulation function to make this connection clear.
 14. Read simple inputs, including simulation parameters and context values,
     directly where they are used, for example
     `rate = float(parameters["rate"])` or

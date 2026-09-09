@@ -1,10 +1,11 @@
 # Shared AWS instance
 
 The workshop uses one shared `c7a.16xlarge` instance in `us-west-2` for
-`/simulate`, `/inference`, and `/report`. Those Cursor commands mirror the
-local repository into an isolated remote folder, run with `--cpus 16`, and
-copy `output/` and `reports/` back. `/simulate` and `/inference` fall back
-to the local machine (`--cpus 4`) if SSH is unavailable; `/report` does not.
+`/simulate`, `/inference`, `/model-comparison`, and `/report`. Those Cursor
+commands mirror the local repository into an isolated remote folder, run with
+`--cpus 16`, and copy `output/` and `reports/` back. `/simulate`,
+`/inference`, and `/model-comparison` fall back to the local machine
+(`--cpus 4`) if SSH is unavailable; `/report` does not.
 
 Direct CLI scripts (`python scripts/simulate.py`, and so on) always run
 locally.

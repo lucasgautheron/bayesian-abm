@@ -30,6 +30,7 @@ Run these commands in chat.
 | Update a model | `/update-model` | Existing model files |
 | Run prior-predictive simulations | `/simulate MODEL [OPTIONS]` | `output/<model>/simulations.png` |
 | Run posterior inference | `/inference MODEL [OPTIONS]` | `output/<model>/` |
+| Compare models | `/model-comparison MODEL MODEL [MODEL ...] [OPTIONS]` | `output/comparisons/` |
 | Generate a model report | `/report MODEL [OPTIONS]` | `reports/<model>/` |
 | Submit a model and report | `/submission MODEL` | `submissions/<model>` branch |
 
@@ -38,16 +39,17 @@ Run these commands in chat.
 it works. It does not run a local simulation or inference smoke test. A
 failed check is a test failure; the instance is not started automatically.
 
-`/simulate`, `/inference`, and `/report` prefer the [shared AWS
-instance](scripts/aws/README.md) (`--cpus 16`) and fall back to this machine
-(`--cpus 4`) if SSH is unavailable.
+`/simulate`, `/inference`, `/model-comparison`, and `/report` prefer the
+[shared AWS instance](scripts/aws/README.md) (`--cpus 16`) and fall back to
+this machine (`--cpus 4`) if SSH is unavailable.
 
 A typical loop:
 
 1. `/test` to confirm the SSH key, running instance, and connection.
 2. `/configure-summary-stats` for the dataset you are working on.
 3. `/add-model` or `/update-model` as you design the process.
-4. `/simulate`, then `/inference` or `/report`.
+4. `/simulate`, then `/inference` or `/report`. Use `/model-comparison`
+   when two or more models for the same dataset should be ranked.
 5. `/submission` when the model and report should be handed in.
 
 `/add-model` and `/add-summary-stat` ask for the statistical specification

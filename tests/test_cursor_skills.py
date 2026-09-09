@@ -12,6 +12,7 @@ SKILL_NAMES = (
     "configure-summary-stats",
     "simulate",
     "inference",
+    "model-comparison",
     "report",
     "test",
 )
@@ -41,7 +42,7 @@ class CursorSkillTests(unittest.TestCase):
                 )
 
     def test_pipeline_skills_use_the_registered_scripts(self) -> None:
-        for name in ("simulate", "inference"):
+        for name in ("simulate", "inference", "model-comparison"):
             with self.subTest(name=name):
                 path = ROOT / ".cursor" / "skills" / name / "SKILL.md"
                 text = path.read_text(encoding="utf-8")
@@ -55,6 +56,14 @@ class CursorSkillTests(unittest.TestCase):
                 self.assertIn("Do not add `--show`", text)
                 self.assertNotIn("visible terminal", text)
                 self.assertIn("normal shell", text)
+        comparison = (
+            ROOT / ".cursor" / "skills" / "model-comparison" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "python scripts/model-comparison.py <model> <model>",
+            comparison,
+        )
+        self.assertIn("two or more", comparison)
 
         report = (ROOT / ".cursor" / "skills" / "report" / "SKILL.md").read_text(
             encoding="utf-8"
