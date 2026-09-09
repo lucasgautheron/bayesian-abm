@@ -1,28 +1,39 @@
 ---
 name: add-summary-stat
-description: Adds a finite scalar summary statistic to a dataset registry with explicit mathematical, domain, invariance, and test requirements. Use only when explicitly invoked with /add-summary-stat.
+description: Adds a finite scalar summary statistic to a dataset registry and registers the named statistics in `.config/summary.ini`. Use only when explicitly invoked with /add-summary-stat.
 disable-model-invocation: true
 ---
 
 # Add a summary statistic
 
-Registration makes a statistic available; it must never silently enable the
-statistic in `.config/summary.ini`.
+`/add-summary-stat` registers named statistics in `.config/summary.ini`.
+If they are already in the dataset registry, write the INI only. If they
+are new, implement them first, then write the same names into the INI.
 
 ## Authoritative requirements
 
 Before asking questions or editing files, read and follow
 `SKILLS/add-summary-statistic/SKILL.md` in full. Do not replace, abbreviate, or
 weaken its implementation, invariance, validation, integration, or testing
-requirements. If this command conflicts with that workflow, the authoritative
-workflow wins.
+requirements. Local INI registration is this command's extension.
 
 For contact statistics, every requirement applies exactly. For another
 dataset, retain every cross-dataset requirement and replace only
 contact-specific schema, context, and registry details with that dataset's
 existing contracts.
 
+## Already registered names
+
+When the participant names registered statistics, or asks for all available
+statistics of a dataset:
+
+1. Resolve the dataset and the exact registry names.
+2. Do not re-implement them.
+3. Register those names in `.config/summary.ini` as specified below.
+
 ## Specify before editing
+
+Required only for a statistic that is not yet in the dataset registry.
 
 1. Ask for the dataset and a stable snake-case registry name.
 2. Ask for the mathematical definition, intended interpretation, units or
@@ -52,12 +63,23 @@ existing contracts.
   `.config/summary.example.ini`. Do not add it to a recommended set without a
   separate explicit request.
 
+## Register in `.config/summary.ini`
+
+- Create `.config/summary.ini` from `.config/summary.example.ini` if it does
+  not exist.
+- Update only the selected dataset's multiline `enabled` value.
+- Append requested names that are not already enabled. Keep existing enabled
+  names unless the participant asked to replace the list.
+- When the participant asks for all available statistics, enable every
+  registered name for that dataset in registry order.
+- Preserve every other dataset section and its ordering.
+- Use exact registry names and require at least one enabled statistic.
+- Validate the edited file with `base.summary_config.load_summary_names`.
+- Report the final enabled names.
+
 ## Verify
 
 Add focused tests covering a hand-computed result, empty/degenerate data,
 invalid factory arguments, out-of-domain data, required invariances, and scalar
 finite output shape and dtype. Run focused tests and then
 `python -m unittest discover -s tests`.
-
-After registration, tell the participant they may use `/configure-summary-stats`
-to consider enabling the new statistic.

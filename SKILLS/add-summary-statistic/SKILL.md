@@ -38,16 +38,20 @@ interfaces and examples in `datasets/contacts/summaries.py`.
    `SummaryFunction`.
 10. Use the shared contact `make_summaries` function from
     `datasets/contacts/summaries.py` in inference, simulation, and model
-    comparison. Do not create script-local registries. Registration makes a
-    statistic available; it does not enable it in a user's local selection.
+    comparison. Do not create script-local registries. Registration in the
+    Python registry makes a statistic available. `/add-summary-stat` also
+    writes the named statistics into the local `.config/summary.ini`
+    enabled list.
 
 ## Local selection
 
 Workshop scripts load enabled names from the ignored
-`.config/summary.ini`. When a user asks to choose existing statistics, edit
-that file only: preserve other dataset sections, use exact registry names, and
-keep at least one name enabled. Do not change implementations or registries
-unless the user explicitly asks to change the available statistics.
+`.config/summary.ini`. `/add-summary-stat` registers named or all-available
+statistics in that file. `/configure-summary-stats` is the interactive
+chooser. When editing the file: preserve other dataset sections, use exact
+registry names, and keep at least one name enabled. Do not change
+implementations or registries unless the user explicitly asks to change the
+available statistics.
 
 ## Pair-plot behavior
 
