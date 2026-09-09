@@ -18,26 +18,29 @@ of running `models`, `base.observations`, or `scripts.report` here.
    one enabled registered name. If not, stop and invite the participant to
    run `/configure-summary-stats`; never select statistics silently. Do not
    run local Python to validate the file.
-4. Run the command on the shared instance, falling back to the local machine
-   if SSH is unavailable:
+4. Run the command on the shared instance. Do not fall back locally if SSH
+   is unavailable; stop with the helper error instead of running
+   `scripts/report.py` here:
 
    ```bash
-   python scripts/aws/remote.py run --fallback-local -- python scripts/report.py <model>
+   python scripts/aws/remote.py run -- python scripts/report.py <model>
    ```
 
-   Append any user-provided simulation, inference, seed, report-directory, or
-   display options. Do not add `--cpus` unless the user asked for one; the
-   remote helper injects `--cpus 16` only when SSH works, and the local
-   script defaults to `--cpus 4` on fallback. Run the command in a visible
-   terminal with stdout and stderr attached so progress bars stream while it
-   runs. Do not redirect, capture, or suppress its output; keep monitoring
-   the command until it exits.
+   Append any user-provided simulation, inference, seed, or `--report-dir`
+   options. Use a repository-relative report directory only; the helper
+   rewrites absolute paths that stay inside the repo. Do not add `--show` or
+   other display options. Do not add `--cpus` unless the user asked for one;
+   the remote helper injects `--cpus 16` only when SSH works.
+
+   Run `remote.py` in the normal shell with stdout and stderr attached. Wait
+   until it exits. Do not start a second run while the first is still going;
+   a retry would `rsync --delete` the in-progress remote tree.
 
    The prior-predictive summary pairplot reuses the inference network's
    training simulations; do not run `scripts/simulate.py` separately.
-   `scripts/report.py` writes a complete `report.md` on the machine that
-   runs it, including observed summary-statistic rows taken from the same
-   loaded conditions used for inference.
+   `scripts/report.py` writes a complete `report.md` on the instance,
+   including observed summary-statistic rows taken from the same loaded
+   conditions used for inference.
 5. After the command exits, read the generated `reports/<model>/report.md`
    and figure files. Use [`REPORT_TEMPLATE.md`](REPORT_TEMPLATE.md) only as
    the checklist for section order, headings, fixed explanatory prose, and

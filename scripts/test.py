@@ -25,6 +25,7 @@ from scripts.aws.support import (
     open_ssh_session,
     require_live_instance,
     run_ssh,
+    ssh_probe_command,
 )
 
 
@@ -109,14 +110,15 @@ def check_ssh_connection(
     """Return a detail string when SSH to the running instance works."""
 
     with open_ssh_session(description, root=root) as session:
-        result = run_ssh(session, "true", capture=True)
+        result = run_ssh(session, ssh_probe_command(), capture=True)
         target = session.target
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "SSH failed").strip()
         raise AwsError(
-            f"Could not connect over SSH: {detail}",
-            "Confirm that port 22 is open and that the instance finished "
-            "booting.",
+            f"Could not run the remote Python probe: {detail}",
+            "Confirm that port 22 is open, the instance finished booting, "
+            "and an instructor has completed "
+            "`python scripts/aws/instance.py setup`.",
         )
     return f"connected to {target}"
 

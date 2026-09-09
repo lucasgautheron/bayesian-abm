@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 from pathlib import Path
 
 import matplotlib
@@ -25,6 +26,8 @@ INTERVAL_SECONDS = 60
 MINUTE_SECONDS = 60
 FIVE_MINUTE_BIN_SECONDS = 5 * MINUTE_SECONDS
 CLUSTERING_BIN_SECONDS = 30 * MINUTE_SECONDS
+DEFAULT_GIF_FPS = 120.0
+DEFAULT_GIF_HOLD_SECONDS = 30
 
 
 def load_contacts(path: Path) -> pd.DataFrame:
@@ -133,6 +136,8 @@ def temporal_graphs(
     contacts: pd.DataFrame,
     nodes: list[int],
     bin_seconds: int,
+    *,
+    cumulative: bool = False,
 ) -> list[tuple[int, int, nx.Graph]]:
     bin_end = (
         (contacts["t"] - 1) // bin_seconds + 1
@@ -145,6 +150,8 @@ def temporal_graphs(
     last_end = int(bin_end.max())
 
     frames = []
+    accumulated = nx.Graph()
+    accumulated.add_nodes_from(nodes)
     for end in range(
         first_end,
         last_end + bin_seconds,
@@ -152,10 +159,19 @@ def temporal_graphs(
     ):
         frame_contacts = groups.get(end)
         if frame_contacts is None:
-            graph = nx.Graph()
+            increment = nx.Graph()
         else:
-            graph = cumulative_graph(frame_contacts)
-        graph.add_nodes_from(nodes)
+            increment = cumulative_graph(frame_contacts)
+        if cumulative:
+            for source, target, data in increment.edges(data=True):
+                if accumulated.has_edge(source, target):
+                    accumulated[source][target]["weight"] += data["weight"]
+                else:
+                    accumulated.add_edge(source, target, weight=data["weight"])
+            graph = accumulated.copy()
+        else:
+            graph = increment
+            graph.add_nodes_from(nodes)
         frames.append((end - bin_seconds, end, graph))
     return frames
 
@@ -173,10 +189,16 @@ def plot_temporal_networks(
     output_dir: Path,
     *,
     bin_seconds: int,
+    cumulative_growth: bool = False,
 ) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     nodes = list(cumulative.nodes)
-    frames = temporal_graphs(contacts, nodes, bin_seconds)
+    frames = temporal_graphs(
+        contacts,
+        nodes,
+        bin_seconds,
+        cumulative=cumulative_growth,
+    )
     for existing_frame in output_dir.glob("contacts_*.png"):
         existing_frame.unlink()
 
@@ -240,12 +262,17 @@ def plot_temporal_networks(
         fig = plt.figure(figsize=(8, 8))
         ax = fig.add_axes((0.04, 0.04, 0.80, 0.86))
         colorbar_ax = fig.add_axes((0.88, 0.18, 0.025, 0.60))
+        background_sizes = (
+            [8.0] * len(nodes)
+            if cumulative_growth
+            else [base_sizes[node] for node in nodes]
+        )
         nx.draw_networkx_nodes(
             cumulative,
             positions,
             nodelist=nodes,
             ax=ax,
-            node_size=[base_sizes[node] for node in nodes],
+            node_size=background_sizes,
             node_color="#d4dce2",
             linewidths=0,
             alpha=0.45,
@@ -263,12 +290,23 @@ def plot_temporal_networks(
                 alpha=0.22,
             )
         if active_nodes:
+            if cumulative_growth:
+                active_sizes = [
+                    8.0
+                    + 42.0
+                    * np.sqrt(
+                        graph.degree(node, weight="weight") / max_node_strength
+                    )
+                    for node in active_nodes
+                ]
+            else:
+                active_sizes = [base_sizes[node] for node in active_nodes]
             nx.draw_networkx_nodes(
                 graph,
                 positions,
                 nodelist=active_nodes,
                 ax=ax,
-                node_size=[base_sizes[node] for node in active_nodes],
+                node_size=active_sizes,
                 node_color=[
                     color_map(
                         color_norm(graph.degree(node, weight="weight"))
@@ -283,26 +321,51 @@ def plot_temporal_networks(
             ScalarMappable(norm=color_norm, cmap=color_map),
             cax=colorbar_ax,
         )
-        colorbar.set_label(
-            f"Active {INTERVAL_SECONDS}-second contact intervals per person"
-        )
-        ax.set_title(
-            f"Contact network: {elapsed_label(start)}–{elapsed_label(end)}\n"
-            f"{len(active_nodes):,} active people, "
-            f"{graph.number_of_edges():,} active pairs, "
-            f"{int(graph.size(weight='weight')):,} contact intervals",
-            fontsize=13,
-            pad=12,
-        )
+        if cumulative_growth:
+            colorbar.set_label(
+                "Cumulative active "
+                f"{INTERVAL_SECONDS}-second contact intervals per person"
+            )
+            first_start = frames[0][0]
+            ax.set_title(
+                "Cumulative contact network: "
+                f"{elapsed_label(first_start)}–{elapsed_label(end)}\n"
+                f"{len(active_nodes):,} people, "
+                f"{graph.number_of_edges():,} distinct pairs, "
+                f"{int(graph.size(weight='weight')):,} contact intervals",
+                fontsize=13,
+                pad=12,
+            )
+        else:
+            colorbar.set_label(
+                f"Active {INTERVAL_SECONDS}-second contact intervals per person"
+            )
+            ax.set_title(
+                f"Contact network: {elapsed_label(start)}–{elapsed_label(end)}\n"
+                f"{len(active_nodes):,} active people, "
+                f"{graph.number_of_edges():,} active pairs, "
+                f"{int(graph.size(weight='weight')):,} contact intervals",
+                fontsize=13,
+                pad=12,
+            )
         ax.set_xlim(x_limits)
         ax.set_ylim(y_limits)
         ax.set_aspect("equal", adjustable="box")
         ax.set_axis_off()
+        if cumulative_growth:
+            caption = (
+                "Node size and color: cumulative activity so far; "
+                "edges accumulate over time"
+            )
+        else:
+            caption = (
+                "Node size: cumulative degree centrality; "
+                "node color: activity in this bin"
+            )
         fig.text(
             0.44,
             0.015,
-            "Node size: cumulative degree centrality; "
-            "node color: activity in this bin",
+            caption,
             ha="center",
             va="bottom",
             fontsize=8,
@@ -468,6 +531,45 @@ def plot_degree_centrality_distribution(
     plt.close(fig)
 
 
+def write_contact_gif(
+    frame_dir: Path,
+    output: Path,
+    *,
+    fps: float,
+    final_hold_seconds: float,
+    glob_pattern: str = "contacts_*.png",
+) -> None:
+    frames = sorted(frame_dir.glob(glob_pattern))
+    if not frames:
+        raise ValueError(f"no frames matching {glob_pattern} in {frame_dir}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    filter_complex = (
+        f"[0:v]tpad=stop_mode=clone:stop_duration={final_hold_seconds},"
+        "scale=800:-1:flags=lanczos,split[s0][s1];"
+        "[s0]palettegen=max_colors=128:stats_mode=diff[p];"
+        "[s1][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
+    )
+    command = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-framerate",
+        str(fps),
+        "-pattern_type",
+        "glob",
+        "-i",
+        str(frame_dir / glob_pattern),
+        "-filter_complex",
+        filter_complex,
+        "-loop",
+        "0",
+        str(output),
+    ]
+    subprocess.run(command, check=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -488,6 +590,40 @@ def parse_args() -> argparse.Namespace:
         default=42,
         help="random seed for the network layout (default: 42)",
     )
+    parser.add_argument(
+        "--growing-gif",
+        action="store_true",
+        help="also write a fast cumulative-growth GIF",
+    )
+    parser.add_argument(
+        "--growing-gif-only",
+        action="store_true",
+        help="write only the cumulative-growth GIF",
+    )
+    parser.add_argument(
+        "--gif-fps",
+        type=float,
+        default=DEFAULT_GIF_FPS,
+        help=f"growth-GIF frames per second (default: {DEFAULT_GIF_FPS:g})",
+    )
+    parser.add_argument(
+        "--gif-hold-seconds",
+        type=float,
+        default=DEFAULT_GIF_HOLD_SECONDS,
+        help=(
+            "seconds to hold the final cumulative network "
+            f"(default: {DEFAULT_GIF_HOLD_SECONDS:g})"
+        ),
+    )
+    parser.add_argument(
+        "--gif-bin-seconds",
+        type=int,
+        default=MINUTE_SECONDS,
+        help=(
+            "bin width in seconds for the growing cumulative GIF "
+            f"(default: {MINUTE_SECONDS})"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -503,45 +639,71 @@ def main() -> int:
         iterations=75,
     )
 
-    network_output = args.output_dir / "contacts_network.png"
-    timeline_output = args.output_dir / "contacts_per_minute.png"
-    clustering_output = args.output_dir / "contacts_clustering_over_time.png"
-    degree_output = (
-        args.output_dir / "contacts_degree_centrality_distribution.png"
-    )
-    temporal_5min_output_dir = args.output_dir / "temporal_5min"
-    temporal_1min_output_dir = args.output_dir / "temporal_1min"
-    plot_cumulative_network(contacts, graph, positions, network_output)
-    plot_contacts_per_minute(contacts, timeline_output)
-    plot_clustering_over_time(contacts, graph, clustering_output)
-    plot_degree_centrality_distribution(graph, degree_output)
-    temporal_5min_frames = plot_temporal_networks(
-        contacts,
-        graph,
-        positions,
-        temporal_5min_output_dir,
-        bin_seconds=FIVE_MINUTE_BIN_SECONDS,
-    )
-    temporal_1min_frames = plot_temporal_networks(
-        contacts,
-        graph,
-        positions,
-        temporal_1min_output_dir,
-        bin_seconds=MINUTE_SECONDS,
-    )
+    if not args.growing_gif_only:
+        network_output = args.output_dir / "contacts_network.png"
+        timeline_output = args.output_dir / "contacts_per_minute.png"
+        clustering_output = args.output_dir / "contacts_clustering_over_time.png"
+        degree_output = (
+            args.output_dir / "contacts_degree_centrality_distribution.png"
+        )
+        temporal_5min_output_dir = args.output_dir / "temporal_5min"
+        temporal_1min_output_dir = args.output_dir / "temporal_1min"
+        plot_cumulative_network(contacts, graph, positions, network_output)
+        plot_contacts_per_minute(contacts, timeline_output)
+        plot_clustering_over_time(contacts, graph, clustering_output)
+        plot_degree_centrality_distribution(graph, degree_output)
+        temporal_5min_frames = plot_temporal_networks(
+            contacts,
+            graph,
+            positions,
+            temporal_5min_output_dir,
+            bin_seconds=FIVE_MINUTE_BIN_SECONDS,
+        )
+        temporal_1min_frames = plot_temporal_networks(
+            contacts,
+            graph,
+            positions,
+            temporal_1min_output_dir,
+            bin_seconds=MINUTE_SECONDS,
+        )
 
-    print(f"Wrote {network_output}")
-    print(f"Wrote {timeline_output}")
-    print(f"Wrote {clustering_output}")
-    print(f"Wrote {degree_output}")
-    print(
-        f"Wrote {temporal_5min_frames} frames to "
-        f"{temporal_5min_output_dir}"
-    )
-    print(
-        f"Wrote {temporal_1min_frames} frames to "
-        f"{temporal_1min_output_dir}"
-    )
+        print(f"Wrote {network_output}")
+        print(f"Wrote {timeline_output}")
+        print(f"Wrote {clustering_output}")
+        print(f"Wrote {degree_output}")
+        print(
+            f"Wrote {temporal_5min_frames} frames to "
+            f"{temporal_5min_output_dir}"
+        )
+        print(
+            f"Wrote {temporal_1min_frames} frames to "
+            f"{temporal_1min_output_dir}"
+        )
+
+    if args.growing_gif or args.growing_gif_only:
+        growing_dir = args.output_dir / (
+            f"cumulative_{args.gif_bin_seconds}s"
+        )
+        growing_frames = plot_temporal_networks(
+            contacts,
+            graph,
+            positions,
+            growing_dir,
+            bin_seconds=args.gif_bin_seconds,
+            cumulative_growth=True,
+        )
+        gif_output = args.output_dir / "contacts_cumulative_growing.gif"
+        write_contact_gif(
+            growing_dir,
+            gif_output,
+            fps=args.gif_fps,
+            final_hold_seconds=args.gif_hold_seconds,
+        )
+        print(f"Wrote {growing_frames} frames to {growing_dir}")
+        print(
+            f"Wrote {gif_output} at {args.gif_fps:g} fps "
+            f"with a {args.gif_hold_seconds:g}s final hold"
+        )
     return 0
 
 

@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import unittest
 
 from scripts import test as test_script
-from scripts.aws.support import AwsError, InstanceConfig
+from scripts.aws.support import AwsError, InstanceConfig, ssh_probe_command
 
 
 CONFIG = InstanceConfig(
@@ -234,11 +234,13 @@ class SshTestScriptTests(unittest.TestCase):
                 test_script,
                 "run_ssh",
                 return_value=Mock(returncode=0, stdout="", stderr=""),
-            ),
+            ) as run_ssh,
         ):
             detail = test_script.check_ssh_connection({"InstanceId": "i-abc"})
 
         self.assertEqual(detail, "connected to ubuntu@1.2.3.4")
+        run_ssh.assert_called_once()
+        self.assertEqual(run_ssh.call_args.args[1], ssh_probe_command())
 
 
 def _context(value: object):

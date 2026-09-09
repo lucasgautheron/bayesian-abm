@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shlex
 import subprocess
 import sys
@@ -23,6 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 INSTANCE_CONFIG_NAME = "aws-instance.json"
+REMOTE_USER_ID_NAME = "aws-remote-user"
 DEFAULT_REGION = "us-west-2"
 DEFAULT_INSTANCE_TYPE = "c7a.16xlarge"
 DEFAULT_REMOTE_CPUS = 16
@@ -57,8 +59,11 @@ RSYNC_EXCLUDES = (
     "slides/",
     ".cursor/",
     ".config/aws-ssh/",
+    ".config/aws-remote-user",
     "tests/",
 )
+REMOTE_PATH_FLAGS = ("--output", "--diagnostics-dir", "--report-dir")
+STANDARD_RESULT_ROOTS = ("output", "reports")
 LIVE_INSTANCE_STATES = frozenset(
     {"pending", "running", "stopping", "stopped", "shutting-down"}
 )
@@ -99,24 +104,50 @@ def workshop_s3_bucket(environ: Mapping[str, str] | None = None) -> str:
     return str(env.get("AWS_WORKSHOP_S3_BUCKET") or WORKSHOP_S3_BUCKET)
 
 
-def remote_user(environ: Mapping[str, str] | None = None) -> str:
+def remote_user_id_path(root: Path = ROOT) -> Path:
+    """Return the gitignored per-workstation remote folder id."""
+
+    return root / ".config" / REMOTE_USER_ID_NAME
+
+
+def sanitize_remote_name(raw: str) -> str:
+    """Return a filesystem-safe remote folder name."""
+
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._-")
+
+
+def remote_user(*, root: Path = ROOT) -> str:
     """Return the isolated remote folder name for this workstation."""
 
-    env = os.environ if environ is None else environ
-    raw = env.get("AWS_REMOTE_USER") or getpass.getuser()
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._-")
-    if not sanitized:
+    path = remote_user_id_path(root)
+    if path.is_file():
+        stored = sanitize_remote_name(path.read_text(encoding="utf-8").strip())
+        if not stored:
+            raise AwsError(
+                f"{path} does not contain a usable remote user id.",
+                "Replace the file with a simple id such as alice-a3f2.",
+            )
+        return stored
+    user = sanitize_remote_name(getpass.getuser())
+    if not user:
         raise AwsError(
             "Could not derive a remote user folder name.",
-            "Set AWS_REMOTE_USER to a simple username such as alice.",
+            f"Write a simple id such as alice-a3f2 to {path}.",
         )
-    return sanitized
+    identity = f"{user}-{secrets.token_hex(2)}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{identity}\n", encoding="utf-8")
+    return identity
 
 
-def remote_workdir(user: str | None = None) -> str:
+def remote_workdir(
+    user: str | None = None,
+    *,
+    root: Path = ROOT,
+) -> str:
     """Return the per-user repository directory on the instance."""
 
-    return f"{REMOTE_USERS_ROOT}/{user or remote_user()}"
+    return f"{REMOTE_USERS_ROOT}/{user or remote_user(root=root)}"
 
 
 def rsync_exclude_args(
@@ -145,6 +176,97 @@ def with_remote_cpus(
     if command_has_cpus(command):
         return list(command)
     return [*command, "--cpus", str(cpus)]
+
+
+def relativize_repo_path(value: str, root: Path) -> str:
+    """Return ``value`` as a POSIX path inside ``root``, or raise."""
+
+    if not value:
+        raise AwsError(
+            "A remote path flag was empty.",
+            "Pass a repository-relative path such as output/model/simulations.png.",
+        )
+    path = Path(value)
+    resolved_root = root.resolve()
+    resolved = path.resolve() if path.is_absolute() else (root / path).resolve()
+    try:
+        relative = resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise AwsError(
+            f"{value} is outside the repository and cannot be used remotely.",
+            "Pass a path inside the repository, such as "
+            "output/<model>/simulations.png.",
+        ) from exc
+    return relative.as_posix()
+
+
+def extra_result_paths(relative_paths: Sequence[str]) -> list[str]:
+    """Return destinations that are not under output/ or reports/."""
+
+    extras: list[str] = []
+    seen: set[str] = set()
+    for relative in relative_paths:
+        parts = Path(relative).parts
+        if not parts or parts[0] in STANDARD_RESULT_ROOTS:
+            continue
+        if relative in seen:
+            continue
+        seen.add(relative)
+        extras.append(relative)
+    return extras
+
+
+def prepare_remote_command(
+    command: Sequence[str],
+    root: Path,
+) -> tuple[list[str], list[str], bool]:
+    """Strip ``--show``, relativize path flags, and list extra copy-back paths."""
+
+    without_show: list[str] = []
+    show_dropped = False
+    for argument in command:
+        if argument == "--show" or argument.startswith("--show="):
+            show_dropped = True
+            continue
+        without_show.append(argument)
+
+    rewritten: list[str] = []
+    destinations: list[str] = []
+    index = 0
+    while index < len(without_show):
+        argument = without_show[index]
+        matched = False
+        for flag in REMOTE_PATH_FLAGS:
+            if argument == flag:
+                if index + 1 >= len(without_show):
+                    raise AwsError(
+                        f"{flag} is missing a path.",
+                        "Pass a repository-relative path after the flag.",
+                    )
+                relative = relativize_repo_path(without_show[index + 1], root)
+                rewritten.extend([flag, relative])
+                destinations.append(relative)
+                index += 2
+                matched = True
+                break
+            prefix = f"{flag}="
+            if argument.startswith(prefix):
+                relative = relativize_repo_path(argument[len(prefix) :], root)
+                rewritten.append(f"{flag}={relative}")
+                destinations.append(relative)
+                index += 1
+                matched = True
+                break
+        if not matched:
+            rewritten.append(argument)
+            index += 1
+    return rewritten, extra_result_paths(destinations), show_dropped
+
+
+def rsync_ssh_transport(identity: Path, known_hosts: Path) -> str:
+    """Return a quoted ``rsync -e`` SSH command."""
+
+    return shlex.join(["ssh", *ssh_options(identity, known_hosts)])
 
 
 def parse_instance_config(payload: Mapping[str, Any], *, source: str) -> InstanceConfig:
@@ -632,6 +754,13 @@ def fetch_workshop_ssh_identity(
 ) -> Path:
     """Download the shared workshop SSH key into ``directory``."""
 
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise AwsError(
+            f"Could not create the SSH key cache directory {directory}: {exc}",
+            "Confirm that the repository is writable, then rerun the command.",
+        ) from exc
     client = s3 if s3 is not None else s3_client()
     identity = directory / "workshop-id_ed25519"
     public_path = public_key_path(identity)
@@ -654,10 +783,16 @@ def fetch_workshop_ssh_identity(
                 "publish` or `setup`.",
             ) from exc
         raise AwsError(translated.problem, translated.resolution) from exc
-    identity.write_bytes(private)
-    identity.chmod(0o600)
-    public_path.write_bytes(public)
-    public_path.chmod(0o644)
+    try:
+        identity.write_bytes(private)
+        identity.chmod(0o600)
+        public_path.write_bytes(public)
+        public_path.chmod(0o644)
+    except OSError as exc:
+        raise AwsError(
+            f"Could not cache the workshop SSH key in {directory}: {exc}",
+            "Confirm that the repository is writable, then rerun the command.",
+        ) from exc
     return identity
 
 

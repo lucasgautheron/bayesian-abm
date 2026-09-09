@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import shlex
 from tempfile import TemporaryDirectory
 from typing import Any
 import unittest
@@ -164,17 +165,56 @@ class AwsSupportTests(unittest.TestCase):
         self.assertIn("[AWS Access]", error.resolution)
         self.assertIn(str(aws_support.dallinger_config_path()), error.resolution)
 
-    def test_remote_user_prefers_environment_override(self) -> None:
-        self.assertEqual(
-            aws_support.remote_user({"AWS_REMOTE_USER": "Ada Lovelace"}),
-            "Ada_Lovelace",
-        )
+    def test_remote_user_rejects_an_empty_local_username(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(aws_support.getpass, "getuser", return_value="***"):
+                with self.assertRaises(aws_support.AwsError) as raised:
+                    aws_support.remote_user(root=root)
 
-    def test_remote_user_rejects_empty_sanitized_name(self) -> None:
-        with self.assertRaises(aws_support.AwsError) as raised:
-            aws_support.remote_user({"AWS_REMOTE_USER": "***"})
+        self.assertIn(str(aws_support.remote_user_id_path(root)), raised.exception.resolution)
 
-        self.assertIn("AWS_REMOTE_USER", raised.exception.resolution)
+    def test_remote_user_reuses_the_gitignored_id(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = aws_support.remote_user_id_path(root)
+            path.parent.mkdir()
+            path.write_text("lucasgautheron-a3f2\n", encoding="utf-8")
+
+            self.assertEqual(
+                aws_support.remote_user(root=root),
+                "lucasgautheron-a3f2",
+            )
+
+    def test_remote_user_creates_a_stable_id_once(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(
+                aws_support.getpass,
+                "getuser",
+                return_value="lucasgautheron",
+            ):
+                first = aws_support.remote_user(root=root)
+                second = aws_support.remote_user(root=root)
+
+            self.assertEqual(first, second)
+            self.assertRegex(first, r"^lucasgautheron-[0-9a-f]{4}$")
+            self.assertEqual(
+                aws_support.remote_user_id_path(root).read_text(encoding="utf-8").strip(),
+                first,
+            )
+
+    def test_remote_user_rejects_an_empty_stored_id(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = aws_support.remote_user_id_path(root)
+            path.parent.mkdir()
+            path.write_text("***\n", encoding="utf-8")
+
+            with self.assertRaises(aws_support.AwsError) as raised:
+                aws_support.remote_user(root=root)
+
+            self.assertIn(str(path), raised.exception.problem)
 
     def test_rsync_exclude_args_cover_the_planned_paths(self) -> None:
         flags = aws_support.rsync_exclude_args()
@@ -186,7 +226,66 @@ class AwsSupportTests(unittest.TestCase):
         self.assertIn("--exclude=slides/", flags)
         self.assertIn("--exclude=.cursor/", flags)
         self.assertIn("--exclude=.config/aws-ssh/", flags)
+        self.assertIn("--exclude=.config/aws-remote-user", flags)
         self.assertIn("--exclude=tests/", flags)
+
+    def test_rsync_ssh_transport_quotes_paths_with_spaces(self) -> None:
+        transport = aws_support.rsync_ssh_transport(
+            Path("/tmp/my key/id"),
+            Path("/tmp/known hosts"),
+        )
+        parts = shlex.split(transport)
+
+        self.assertEqual(parts[0], "ssh")
+        self.assertIn("/tmp/my key/id", parts)
+        self.assertIn("UserKnownHostsFile=/tmp/known hosts", parts)
+
+    def test_prepare_remote_command_strips_show_and_relativizes_paths(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            rewritten, extra, dropped = aws_support.prepare_remote_command(
+                [
+                    "python",
+                    "scripts/simulate.py",
+                    "latent_network",
+                    "--show",
+                    "--output",
+                    str(root / "output" / "model" / "simulations.png"),
+                    "--report-dir=artifacts/custom",
+                ],
+                root,
+            )
+
+        self.assertTrue(dropped)
+        self.assertEqual(
+            rewritten,
+            [
+                "python",
+                "scripts/simulate.py",
+                "latent_network",
+                "--output",
+                "output/model/simulations.png",
+                "--report-dir=artifacts/custom",
+            ],
+        )
+        self.assertEqual(extra, ["artifacts/custom"])
+
+    def test_prepare_remote_command_rejects_paths_outside_the_repo(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(aws_support.AwsError) as raised:
+                aws_support.prepare_remote_command(
+                    [
+                        "python",
+                        "scripts/simulate.py",
+                        "latent_network",
+                        "--output",
+                        "/tmp/out.png",
+                    ],
+                    root,
+                )
+
+        self.assertIn("outside the repository", raised.exception.problem)
 
     def test_with_remote_cpus_does_not_override_an_explicit_flag(self) -> None:
         command = ["python", "scripts/simulate.py", "latent_network", "--cpus", "3"]
@@ -232,7 +331,9 @@ class AwsSupportTests(unittest.TestCase):
             aws_support.clear_instance_config(root, s3=s3)
             self.assertIsNone(aws_support.load_instance_config_optional(s3=s3))
 
-    def test_fetch_workshop_ssh_identity_writes_the_downloaded_key(self) -> None:
+    def test_fetch_workshop_ssh_identity_creates_cache_and_writes_key(
+        self,
+    ) -> None:
         s3 = FakeS3()
         s3.put_object(
             Bucket=aws_support.workshop_s3_bucket(),
@@ -245,10 +346,13 @@ class AwsSupportTests(unittest.TestCase):
             Body=b"ssh-ed25519 AAAA workshop\n",
         )
         with TemporaryDirectory() as directory:
+            cache = Path(directory) / ".config" / "aws-ssh"
+            self.assertFalse(cache.exists())
             identity = aws_support.fetch_workshop_ssh_identity(
-                Path(directory),
+                cache,
                 s3=s3,
             )
+            self.assertTrue(cache.is_dir())
             self.assertEqual(identity.read_bytes(), b"PRIVATE")
             self.assertIn(
                 "ssh-ed25519 AAAA workshop",

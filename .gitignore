@@ -34,6 +34,7 @@ MANIFEST
 .config/summary.ini
 .config/aws-instance.json
 .config/aws-ssh/
+.config/aws-remote-user
 .venv/
 .venv*/
 env/

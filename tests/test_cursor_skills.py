@@ -41,7 +41,7 @@ class CursorSkillTests(unittest.TestCase):
                 )
 
     def test_pipeline_skills_use_the_registered_scripts(self) -> None:
-        for name in ("simulate", "inference", "report"):
+        for name in ("simulate", "inference"):
             with self.subTest(name=name):
                 path = ROOT / ".cursor" / "skills" / name / "SKILL.md"
                 text = path.read_text(encoding="utf-8")
@@ -50,6 +50,26 @@ class CursorSkillTests(unittest.TestCase):
                 self.assertIn("--cpus 16", text)
                 self.assertIn("--cpus 4", text)
                 self.assertIn("/configure-summary-stats", text)
+                self.assertIn("models/__init__.py", text)
+                self.assertNotIn("models.MODEL_REGISTRY", text)
+                self.assertIn("Do not add `--show`", text)
+                self.assertNotIn("visible terminal", text)
+                self.assertIn("normal shell", text)
+
+        report = (ROOT / ".cursor" / "skills" / "report" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("scripts/aws/remote.py run --fallback-local", report)
+        self.assertIn(
+            "scripts/aws/remote.py run -- python scripts/report.py <model>",
+            report,
+        )
+        self.assertIn("--cpus 16", report)
+        self.assertNotIn("--cpus 4", report)
+        self.assertIn("/configure-summary-stats", report)
+        self.assertIn("Do not add `--show`", report)
+        self.assertNotIn("visible terminal", report)
+        self.assertIn("Do not fall back locally", report)
 
     def test_local_test_skill_runs_the_ssh_probe(self) -> None:
         text = (
@@ -64,6 +84,7 @@ class CursorSkillTests(unittest.TestCase):
         self.assertIn("connection", text)
         self.assertIn("in this order", text)
         self.assertIn("SSH", text)
+        self.assertIn("remote.py check", text)
         self.assertNotIn("smoke test", text.lower())
         self.assertNotIn("simulation", text.lower())
 

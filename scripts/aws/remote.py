@@ -22,11 +22,12 @@ from scripts.aws.support import (
     ensure_instance_running,
     load_instance_config,
     open_ssh_session,
+    prepare_remote_command,
     remote_workdir,
     rsync_exclude_args,
+    rsync_ssh_transport,
     run_logged,
     run_ssh,
-    ssh_options,
     ssh_probe_command,
     translate_boto_error,
     with_remote_cpus,
@@ -109,7 +110,7 @@ def rsync_to_remote(
             "--delete",
             *rsync_exclude_args(),
             "-e",
-            "ssh " + " ".join(ssh_options(session.identity, session.known_hosts)),
+            rsync_ssh_transport(session.identity, session.known_hosts),
             f"{source}/",
             f"{session.target}:{destination}/",
         ],
@@ -123,40 +124,79 @@ def rsync_to_remote(
         )
 
 
+def _rsync_from_remote(
+    session: SshSession,
+    remote_path: str,
+    local: Path,
+    *,
+    directory: bool,
+) -> None:
+    if directory:
+        local.mkdir(parents=True, exist_ok=True)
+        source = f"{session.target}:{remote_path}/"
+        destination = f"{local}/"
+        label = f"{local.name}/"
+    else:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        source = f"{session.target}:{remote_path}"
+        destination = str(local)
+        label = local.name
+    result = run_logged(
+        [
+            "rsync",
+            "-az",
+            "-e",
+            rsync_ssh_transport(session.identity, session.known_hosts),
+            source,
+            destination,
+        ],
+        capture=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "rsync failed").strip()
+        raise AwsError(
+            f"Could not copy {label} back from the instance: {detail}",
+            "The remote command may have finished; copy the files manually "
+            "or rerun the command.",
+        )
+
+
 def rsync_results_back(
     session: SshSession,
     source: str,
     root: Path,
+    extra: Sequence[str] = (),
 ) -> None:
     for relative in ("output", "reports"):
+        remote_path = f"{source}/{relative}"
         exists = run_ssh(
             session,
-            f"test -d {shlex.quote(f'{source}/{relative}')}",
+            f"test -d {shlex.quote(remote_path)}",
             capture=True,
         )
         if exists.returncode != 0:
             continue
-        local = root / relative
-        local.mkdir(parents=True, exist_ok=True)
-        result = run_logged(
-            [
-                "rsync",
-                "-az",
-                "-e",
-                "ssh "
-                + " ".join(ssh_options(session.identity, session.known_hosts)),
-                f"{session.target}:{source}/{relative}/",
-                f"{local}/",
-            ],
+        _rsync_from_remote(session, remote_path, root / relative, directory=True)
+    for relative in extra:
+        remote_path = f"{source}/{relative}"
+        exists = run_ssh(
+            session,
+            f"test -e {shlex.quote(remote_path)}",
             capture=True,
         )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "rsync failed").strip()
-            raise AwsError(
-                f"Could not copy {relative}/ back from the instance: {detail}",
-                "The remote command may have finished; copy the files manually "
-                "or rerun the command.",
-            )
+        if exists.returncode != 0:
+            continue
+        is_dir = run_ssh(
+            session,
+            f"test -d {shlex.quote(remote_path)}",
+            capture=True,
+        )
+        _rsync_from_remote(
+            session,
+            remote_path,
+            root / relative,
+            directory=is_dir.returncode == 0,
+        )
 
 
 def run_remote_command(
@@ -212,7 +252,10 @@ def run_on_instance(
     announce: Callable[[str], None] = print,
 ) -> None:
     config = load_instance_config(root)
-    remote_command = with_remote_cpus(command, remote_default_cpus(config))
+    prepared, extra_paths, show_dropped = prepare_remote_command(command, root)
+    if show_dropped:
+        announce("Dropping --show for the remote run (no display on the instance).")
+    remote_command = with_remote_cpus(prepared, remote_default_cpus(config))
     ec2 = ec2_client(config["region"])
     description = ensure_instance_running(
         ec2,
@@ -220,19 +263,31 @@ def run_on_instance(
         start_if_stopped=True,
         announce=announce,
     )
-    workdir = remote_workdir()
+    workdir = remote_workdir(root=root)
     announce(f"Mirroring the repository to {workdir}.")
     with open_ssh_session(description, root=root) as session:
         rsync_to_remote(session, root, workdir)
         announce("Running the command on the shared instance.")
-        run_remote_command(
-            session,
-            workdir,
-            remote_command,
-            tty=sys.stdin.isatty(),
-        )
+        failed: RemoteExecutionError | None = None
+        try:
+            run_remote_command(
+                session,
+                workdir,
+                remote_command,
+                tty=sys.stdin.isatty(),
+            )
+        except RemoteExecutionError as exc:
+            failed = exc
         announce("Copying output/ and reports/ back.")
-        rsync_results_back(session, workdir, root)
+        try:
+            rsync_results_back(session, workdir, root, extra=extra_paths)
+        except AwsError as copy_exc:
+            if failed is None:
+                raise
+            announce(f"Could not copy results back: {copy_exc.problem}")
+            raise failed from copy_exc
+        if failed is not None:
+            raise failed
 
 
 def run_locally(

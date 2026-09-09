@@ -3,8 +3,8 @@
 The workshop uses one shared `c7a.16xlarge` instance in `us-west-2` for
 `/simulate`, `/inference`, and `/report`. Those Cursor commands mirror the
 local repository into an isolated remote folder, run with `--cpus 16`, and
-copy `output/` and `reports/` back. If SSH is unavailable they fall back to
-the local machine (`--cpus 4`).
+copy `output/` and `reports/` back. `/simulate` and `/inference` fall back
+to the local machine (`--cpus 4`) if SSH is unavailable; `/report` does not.
 
 Direct CLI scripts (`python scripts/simulate.py`, and so on) always run
 locally.
@@ -88,8 +88,9 @@ The workshop instance stays in `us-west-2` even if that file sets
 `aws_region`. `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` override
 the matching keys in the file.
 
-Per-user workspaces stay under `/home/ubuntu/users/<username>`
-(`AWS_REMOTE_USER` if local usernames collide).
+Per-workstation folders stay under `/home/ubuntu/users/<id>`, using the
+gitignored id in `.config/aws-remote-user` (for example
+`lucasgautheron-a3f2`).
 
 Override the bucket with `AWS_WORKSHOP_S3_BUCKET` if needed.
 

@@ -14,10 +14,12 @@ disable-model-invocation: true
 
 2. Report the three checks **in this order**: SSH key access (`ssh-key`),
    whether the shared instance is running (`instance`), and SSH
-   connectivity (`connection`). Quote each `PASS`, `FAIL`, or `SKIP` line
-   and any `Problem` / `Next step` lines. On success, quote the check
-   detail. This does not validate a participant's model, observed dataset,
-   or summary selection.
+   connectivity (`connection`). The connection check uses the same remote
+   Python/conda probe as `python scripts/aws/remote.py check`, so a box that
+   accepts SSH but lacks the workshop environment fails here too. Quote each
+   `PASS`, `FAIL`, or `SKIP` line and any `Problem` / `Next step` lines. On
+   success, quote the check detail. This does not validate a participant's
+   model, observed dataset, or summary selection.
 3. Do not start, stop, create, or destroy the instance from `/test`. A
    stopped instance fails the instance check and skips the connection
    check; tell the user they can run
