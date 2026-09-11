@@ -121,6 +121,7 @@ class CursorSkillTests(unittest.TestCase):
         text = " ".join(path.read_text(encoding="utf-8").split())
 
         self.assertIn("explicitly recommend accepting that set", text)
+        self.assertIn("Default to the `contacts` dataset", text)
         self.assertIn(
             "Ask which new summary statistic the participant would like "
             "to implement",
@@ -133,6 +134,25 @@ class CursorSkillTests(unittest.TestCase):
         self.assertIn(
             "only if the participant explicitly asks to use all of them",
             text,
+        )
+
+        add_model = " ".join(
+            (
+                ROOT / ".cursor" / "skills" / "add-model" / "SKILL.md"
+            ).read_text(encoding="utf-8").split()
+        )
+        add_summary = " ".join(
+            (
+                ROOT / ".cursor" / "skills" / "add-summary-stat" / "SKILL.md"
+            ).read_text(encoding="utf-8").split()
+        )
+        self.assertIn(
+            "Assume the model belongs to `contacts` (first tutorial session)",
+            add_model,
+        )
+        self.assertIn(
+            "Assume the `contacts` dataset (first tutorial session)",
+            add_summary,
         )
 
     def test_slash_skills_delegate_to_authoritative_workflows(self) -> None:

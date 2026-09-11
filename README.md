@@ -46,7 +46,7 @@ this machine (`--cpus 4`) if SSH is unavailable.
 A typical loop:
 
 1. `/test` to confirm the SSH key, running instance, and connection.
-2. `/configure-summary-stats` for the dataset you are working on.
+2. `/configure-summary-stats` (defaults to the contact dataset).
 3. `/add-model` or `/update-model` as you design the process.
 4. `/simulate`, then `/inference` or `/report`. Use `/model-comparison`
    when two or more models for the same dataset should be ranked.
@@ -64,10 +64,12 @@ Simulation and inference need an explicit, local selection of summary
 statistics for the dataset used by the requested model. The selection lives
 in `.config/summary.ini` and is intentionally not committed.
 
-Run `/configure-summary-stats` and name a model or dataset. Cursor will
-explain the recommended starting set and wait for confirmation before writing
-the file. Recommendations are starting points, not mandatory choices. There
-is no maximum number of enabled statistics.
+Run `/configure-summary-stats`. Cursor assumes the contact dataset by
+default (the first tutorial session). Name a model or another dataset only
+if you are not working on contacts. Cursor will explain the recommended
+starting set and wait for confirmation before writing the file.
+Recommendations are starting points, not mandatory choices. There is no
+maximum number of enabled statistics.
 
 For contacts, the proposed starting configuration is:
 

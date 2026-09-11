@@ -27,7 +27,7 @@ existing contracts.
 When the participant names registered statistics, or asks for all available
 statistics of a dataset:
 
-1. Resolve the dataset and the exact registry names.
+1. Resolve the dataset (default `contacts`) and the exact registry names.
 2. Do not re-implement them.
 3. Register those names in `.config/summary.ini` as specified below.
 
@@ -35,7 +35,9 @@ statistics of a dataset:
 
 Required only for a statistic that is not yet in the dataset registry.
 
-1. Ask for the dataset and a stable snake-case registry name.
+1. Assume the `contacts` dataset (first tutorial session) unless the
+   participant names another dataset, then ask for a stable snake-case
+   registry name.
 2. Ask for the mathematical definition, intended interpretation, units or
    range, and the model behavior or parameter it is meant to reveal.
 3. Establish required context, behavior for empty or degenerate data, and

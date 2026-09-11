@@ -11,8 +11,9 @@ ordered list before `.config/summary.ini` is created or changed.
 
 ## Guide the choice
 
-1. Ask for a registered model name or one of the datasets `contacts`,
-   `story_daily`, or `scientist_conventions`. Resolve model names through
+1. Default to the `contacts` dataset (first tutorial session). Use another
+   dataset only if the participant names a registered model or one of
+   `story_daily` or `scientist_conventions`. Resolve model names through
    `models.MODEL_REGISTRY`.
 2. Read `AVAILABLE_SUMMARY_NAMES` and `RECOMMENDED_SUMMARY_NAMES` from
    `base/summary_config.py`, plus the selected dataset's registry and statistic

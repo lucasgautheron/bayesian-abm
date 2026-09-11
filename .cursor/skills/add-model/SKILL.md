@@ -23,7 +23,8 @@ contracts.
 
 ## Specify before editing
 
-1. Ask which dataset the model belongs to: `contacts`, `story_daily`, or
+1. Assume the model belongs to `contacts` (first tutorial session) unless
+   the participant names another dataset: `story_daily` or
    `scientist_conventions`.
 2. Ask for a unique stable model name. If it is already registered, direct the
    user to `/update-model`.

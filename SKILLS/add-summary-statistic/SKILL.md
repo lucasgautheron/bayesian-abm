@@ -48,7 +48,7 @@ interfaces and examples in `datasets/contacts/summaries.py`.
 Workshop scripts load enabled names from the ignored
 `.config/summary.ini`. `/add-summary-stat` registers named or all-available
 statistics in that file. `/configure-summary-stats` is the interactive
-chooser. When editing the file: preserve other dataset sections, use exact
+chooser and defaults to the contact dataset. When editing the file: preserve other dataset sections, use exact
 registry names, and keep at least one name enabled. Do not change
 implementations or registries unless the user explicitly asks to change the
 available statistics.
