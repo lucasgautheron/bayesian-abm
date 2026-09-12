@@ -2,7 +2,7 @@
 
 ## Model description
 
-Static Beta affinities and agent gravity with OU-modulated starts.
+People in a finite population form minute-by-minute pairwise contacts. Each person is assigned to a latent social group and given a stable activity level (log-normal agent gravity), so some individuals are systematically more likely to appear in conversations. Whether two people start talking depends on a lasting pair affinity—higher on average inside a group than across groups (Beta affinities around within- and between-group means)—multiplied by the product of their activities; new conversations then begin as Poisson events among currently idle pairs, persist for a random run of minutes, and end. The overall pace of those starts wanders smoothly through the observation window (an Ornstein–Uhlenbeck process on the log start rate).
 
 ## Summary statistics
 
