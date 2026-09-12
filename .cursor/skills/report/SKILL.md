@@ -9,7 +9,16 @@ disable-model-invocation: true
 Do not import or execute the project's scientific Python stack on the local
 machine. Distant `/report` must succeed when only the remote helper and AWS
 or SSH tools are available locally. Read source and generated files instead
-of running `models`, `base.observations`, or `scripts.report` here.
+of running `models`, `base.observations`, or `scripts.report` here. If a
+helper command fails because `boto3` is missing, install only the
+remote-helper dependency and retry:
+
+```bash
+python -m pip install -r requirements-remote.txt
+```
+
+Never install `requirements.txt` or the scientific stack to make a remote
+command work.
 
 1. Obtain a registered model name if the user did not provide one.
 2. Resolve it by reading `models/__init__.py` and the model's module; identify

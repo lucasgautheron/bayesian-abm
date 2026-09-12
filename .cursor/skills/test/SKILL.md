@@ -32,8 +32,15 @@ disable-model-invocation: true
    python scripts/test.py --verbose
    ```
 
-5. Ask before changing AWS resources, installing packages, or editing
-   configuration.
+5. If a check fails because `boto3` is missing, install only the
+   remote-helper dependency without waiting for confirmation:
+
+   ```bash
+   python -m pip install -r requirements-remote.txt
+   ```
+
+   Never install `requirements.txt` for this command. Ask before changing
+   AWS resources, installing any other package, or editing configuration.
 6. After an accepted correction, rerun `python scripts/test.py` and report
    the three checks again in order. If a check still fails, diagnose the
    new failure rather than repeating the same correction.

@@ -477,15 +477,16 @@ def load_aws_credentials(
 
 
 def import_boto3() -> Any:
-    """Import boto3 or explain that it is part of the project environment."""
+    """Import boto3 or explain the thin remote-helper install."""
 
     try:
         import boto3  # type: ignore[import-not-found]
     except ModuleNotFoundError as exc:
         raise AwsError(
             "Required Python module 'boto3' is not importable.",
-            "Confirm that the project environment is active, then run "
-            "`python -m pip install -r requirements.txt`.",
+            "Install only the remote-helper dependency with "
+            "`python -m pip install -r requirements-remote.txt`. "
+            "Do not install `requirements.txt` for Cursor commands over SSH.",
         ) from exc
     return boto3
 

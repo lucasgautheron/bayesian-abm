@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 import shlex
+import sys
 from tempfile import TemporaryDirectory
 from typing import Any
 import unittest
@@ -155,6 +156,30 @@ class AwsSupportTests(unittest.TestCase):
             region_name=aws_support.WORKSHOP_S3_REGION,
             aws_access_key_id="AKIACLIENT",
             aws_secret_access_key="client-secret",
+        )
+
+    def test_import_boto3_points_at_the_thin_requirements_file(self) -> None:
+        with patch.dict(sys.modules, {"boto3": None}):
+            with self.assertRaises(aws_support.AwsError) as raised:
+                aws_support.import_boto3()
+
+        self.assertIn("requirements-remote.txt", raised.exception.resolution)
+        self.assertNotIn(
+            "pip install -r requirements.txt",
+            raised.exception.resolution,
+        )
+
+    def test_remote_requirements_pin_matches_full_requirements(self) -> None:
+        def boto_pin(path: Path) -> str:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("boto3=="):
+                    return line
+            self.fail(f"{path} does not pin boto3")
+
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(
+            boto_pin(root / "requirements-remote.txt"),
+            boto_pin(root / "requirements.txt"),
         )
 
     def test_translate_boto_error_points_at_dallingerconfig(self) -> None:

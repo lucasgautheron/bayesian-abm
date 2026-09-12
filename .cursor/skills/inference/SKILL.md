@@ -10,6 +10,15 @@ Do not import or execute the project's scientific Python stack on the local
 machine. Read source and generated files instead of running `models`,
 `base.observations`, or `scripts.inference` here. The remote helper still
 runs `scripts/inference.py` on the instance, or locally if SSH is unavailable.
+If a helper command fails because `boto3` is missing, install only the
+remote-helper dependency and retry:
+
+```bash
+python -m pip install -r requirements-remote.txt
+```
+
+Never install `requirements.txt` or the scientific stack to make a remote
+command work.
 
 1. Obtain a registered model name if the user did not provide one.
 2. Resolve it by reading `models/__init__.py` and the model's module; identify

@@ -56,6 +56,8 @@ class CursorSkillTests(unittest.TestCase):
                 self.assertIn("Do not add `--show`", text)
                 self.assertNotIn("visible terminal", text)
                 self.assertIn("normal shell", text)
+                self.assertIn("requirements-remote.txt", text)
+                self.assertNotIn("pip install -r requirements.txt", text)
         comparison = (
             ROOT / ".cursor" / "skills" / "model-comparison" / "SKILL.md"
         ).read_text(encoding="utf-8")
@@ -79,6 +81,8 @@ class CursorSkillTests(unittest.TestCase):
         self.assertIn("Do not add `--show`", report)
         self.assertNotIn("visible terminal", report)
         self.assertIn("Do not fall back locally", report)
+        self.assertIn("requirements-remote.txt", report)
+        self.assertNotIn("pip install -r requirements.txt", report)
 
     def test_local_test_skill_runs_the_ssh_probe(self) -> None:
         text = (
@@ -94,6 +98,8 @@ class CursorSkillTests(unittest.TestCase):
         self.assertIn("in this order", text)
         self.assertIn("SSH", text)
         self.assertIn("remote.py check", text)
+        self.assertIn("requirements-remote.txt", text)
+        self.assertNotIn("pip install -r requirements.txt", text)
         self.assertNotIn("smoke test", text.lower())
         self.assertNotIn("simulation", text.lower())
 

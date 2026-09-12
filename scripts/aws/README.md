@@ -17,7 +17,9 @@ repository.
 
 ## Commands
 
-Run these from the repository root after activating the project environment.
+Run these from the repository root. Cursor remote commands need only
+`requirements-remote.txt`; instructor setup and local CLI need the full
+project environment.
 
 | Task | Command |
 | --- | --- |
@@ -95,7 +97,14 @@ gitignored id in `.config/aws-remote-user` (for example
 
 Override the bucket with `AWS_WORKSHOP_S3_BUCKET` if needed.
 
-Students also need `ssh`, `rsync`, and `boto3` from `requirements.txt`.
+Students also need `ssh`, `rsync`, and the thin remote-helper install:
+
+```bash
+python -m pip install -r requirements-remote.txt
+```
+
+That file is only `boto3`. Do not install `requirements.txt` just to run
+Cursor commands on the shared instance.
 
 ## IAM
 

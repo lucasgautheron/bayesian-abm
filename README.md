@@ -105,6 +105,17 @@ Heavy Cursor commands run on a shared AWS instance when it is reachable.
 Start and stop that instance, instructor setup, credentials, and IAM are
 documented in [scripts/aws/README.md](scripts/aws/README.md).
 
+Those commands only need `ssh`, `rsync`, workshop credentials in
+`~/.dallingerconfig`, and the remote helper:
+
+```bash
+python -m pip install -r requirements-remote.txt
+```
+
+Do not install `requirements.txt` just to use `/simulate`, `/inference`,
+`/model-comparison`, `/report`, or `/test`. That file is the full scientific
+stack for [local CLI](#local-cli) work and for the shared instance itself.
+
 ## Local installation
 
 This project requires **Python 3.11, 3.12, or 3.13**

@@ -10,7 +10,15 @@ Do not import or execute the project's scientific Python stack on the local
 machine. Read source and generated files instead of running `models`,
 `base.observations`, or `scripts.model-comparison` here. The remote helper still
 runs `scripts/model-comparison.py` on the instance, or locally if SSH is
-unavailable.
+unavailable. If a helper command fails because `boto3` is missing, install
+only the remote-helper dependency and retry:
+
+```bash
+python -m pip install -r requirements-remote.txt
+```
+
+Never install `requirements.txt` or the scientific stack to make a remote
+command work.
 
 1. Obtain two or more registered model names if the user did not provide them.
    Do not invent a second model, and do not run comparison on a single model.
